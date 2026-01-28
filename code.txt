@@ -1,0 +1,1227 @@
+/* ==================================================
+   BACKEND - FLEETCONTROL PRO v6.0 (ENHANCED)
+   ================================================== */
+
+function doGet() {
+  return HtmlService.createTemplateFromFile('Index')
+      .evaluate()
+      .setTitle('FleetControl Pro 5.1')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// ==========================================
+// 1. SETUP BASE DE DATOS
+// ==========================================
+function SETUP_ReconstruirBaseDatos() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const esquemas = {
+    'USUARIOS': ['PIN', 'NOMBRE', 'ROL', 'ESTADO', 'EMAIL'],
+    'UNIDADES': ['ID', 'TIPO', 'MARCA_MODELO', 'PLACAS', 'ESTADO', 'ODOMETRO', 'COMBUSTIBLE_ACTUAL', 'FOTO_URL'],
+    'VIAJES': ['ID_VIAJE', 'FECHA_SALIDA', 'UNIDAD_ID', 'CHOFER_PIN', 'ODOMETRO_SALIDA', 'GAS_SALIDA', 'TIPO_USO', 'MOTIVO', 'CHECKLIST_JSON', 'FECHA_ENTRADA', 'ODOMETRO_ENTRADA', 'GAS_ENTRADA', 'FIRMA_BASE64', 'ESTADO_VIAJE', 'TIEMPO_TOTAL'],
+    'ORDENES_TRABAJO': ['FOLIO', 'FECHA_CREACION', 'UNIDAD_ID', 'TIPO_MTTO', 'PRIORIDAD', 'DESCRIPCION', 'ESTADO', 'DIAGNOSTICO', 'PIEZAS_JSON', 'COSTO_TOTAL', 'FECHA_CIERRE', 'TECNICO'],
+    'SOLICITUDES_COMPRA': ['ID_SOL', 'FOLIO_OT', 'FECHA', 'SOLICITANTE', 'DESCRIPCION', 'MONTO', 'ESTADO', 'AUTORIZADO_POR'],
+    'COMBUSTIBLE': ['ID_CARGA', 'FECHA', 'UNIDAD_ID', 'USUARIO_PIN', 'LITROS', 'PRECIO', 'COSTO_TOTAL', 'ODOMETRO', 'FOTO_TICKET'],
+    'CONFIG': ['CLAVE', 'VALOR']
+  };
+
+  for (const [nombre, headers] of Object.entries(esquemas)) {
+    let sheet = ss.getSheetByName(nombre);
+    if (!sheet) {
+      sheet = ss.insertSheet(nombre);
+      sheet.appendRow(headers);
+      sheet.getRange(1, 1, 1, headers.length).setBackground('#0f172a').setFontColor('white').setFontWeight('bold');
+      sheet.setFrozenRows(1);
+    }
+  }
+  
+  // Semilla Usuarios
+  const uSheet = ss.getSheetByName('USUARIOS');
+  if(uSheet.getLastRow() === 1) {
+    uSheet.appendRow(['1111', 'Super Admin', 'SUPER_ADMIN', 'ACTIVO', 'admin@fleet.com']);
+    uSheet.appendRow(['3333', 'Jefe Taller', 'TALLER', 'ACTIVO', 'taller@fleet.com']);
+    uSheet.appendRow(['4444', 'Juan Chofer', 'CHOFER', 'ACTIVO', 'juan@fleet.com']);
+  }
+  
+  // Semilla Unidades
+  const unitSheet = ss.getSheetByName('UNIDADES');
+  if(unitSheet.getLastRow() === 1) {
+    unitSheet.appendRow(['L200-01', 'UTILITARIA', 'Mitsubishi L200', 'BC-123', 'DISPONIBLE', 45000, 100, '']);
+    unitSheet.appendRow(['F450-01', 'RECOLECCION', 'Ford F-450', 'REC-01', 'DISPONIBLE', 150000, 100, '']);
+    unitSheet.appendRow(['CAT-01', 'PESADO', 'Retroexcavadora', 'SIN-PLACA', 'DISPONIBLE', 2500, 100, '']);
+  }
+}
+
+// ==========================================
+// 2. API ENDPOINTS
+// ==========================================
+
+function apiLogin(pin) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('USUARIOS');
+  if(!sheet) return { exito: false, error: 'DB no inicializada' };
+  
+  const data = sheet.getDataRange().getValues();
+  for(let i=1; i<data.length; i++) {
+    if(String(data[i][0]) == String(pin) && data[i][3] === 'ACTIVO') {
+      return { exito: true, user: { pin: data[i][0], nombre: data[i][1], rol: data[i][2] } };
+    }
+  }
+  return { exito: false, error: 'PIN incorrecto' };
+}
+
+function apiGetDashboardData() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const unidades = ss.getSheetByName('UNIDADES').getDataRange().getValues().slice(1);
+  const ots = ss.getSheetByName('ORDENES_TRABAJO').getDataRange().getValues().slice(1);
+  const solicitudes = ss.getSheetByName('SOLICITUDES_COMPRA').getDataRange().getValues().slice(1);
+
+  let kpis = { disponible: 0, ruta: 0, taller: 0, total: unidades.length, otAbiertas: 0, solPendientes: 0 };
+  let listaUnidades = [];
+
+  unidades.forEach(u => {
+    const estado = u[4] || 'DISPONIBLE';
+    if(estado === 'DISPONIBLE') kpis.disponible++;
+    else if(estado === 'EN_RUTA') kpis.ruta++;
+    else kpis.taller++;
+
+    listaUnidades.push({
+      id: u[0], tipo: u[1], modelo: u[2], placas: u[3],
+      estado: estado, odo: u[5], gas: u[6]
+    });
+  });
+
+  kpis.otAbiertas = ots.filter(o => o[6] !== 'CERRADA').length;
+  kpis.solPendientes = solicitudes.filter(s => s[6] === 'PENDIENTE').length;
+
+  return { kpis, flota: listaUnidades, recentOts: ots.slice(-5) };
+}
+
+function apiGetUnitDetails(unidadId) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  
+  // 1. Get Unit Info
+  const uSheet = ss.getSheetByName('UNIDADES');
+  const uData = uSheet.getDataRange().getValues();
+  let unit = null;
+  for(let i=1; i<uData.length; i++) {
+    if(String(uData[i][0]) === String(unidadId)) {
+      unit = { id: uData[i][0], tipo: uData[i][1], modelo: uData[i][2], placas: uData[i][3], estado: uData[i][4], odo: uData[i][5], gas: uData[i][6], foto: uData[i][7] };
+      break;
+    }
+  }
+  if (!unit) return { exito: false, error: 'Unidad no encontrada' };
+
+  // 2. Get Open OTs
+  const ots = ss.getSheetByName('ORDENES_TRABAJO').getDataRange().getValues().slice(1)
+              .filter(r => String(r[2]) === String(unidadId) && r[6] !== 'CERRADA')
+              .map(r => ({ folio: r[0], desc: r[5], fecha: r[1] }));
+
+  // 3. Get Recent Trips (Last 5)
+  const trips = ss.getSheetByName('VIAJES').getDataRange().getValues().slice(1)
+                .filter(r => String(r[2]) === String(unidadId))
+                .sort((a,b) => new Date(b[1]) - new Date(a[1])) // Sort Desc
+                .slice(0, 5)
+                .map(r => ({ salida: r[1], chofer: r[3], motivo: r[7] }));
+
+  // 4. Get Fuel Efficiency (Mock Calculation for now)
+  const fuel = ss.getSheetByName('COMBUSTIBLE').getDataRange().getValues().slice(1)
+               .filter(r => String(r[2]) === String(unidadId));
+  
+  // Simple Yield Calc: (Max Odo - Min Odo) / Sum Liters
+  let yieldVal = 0;
+  if (fuel.length > 1) {
+     const liters = fuel.reduce((acc, curr) => acc + (parseFloat(curr[4]) || 0), 0);
+     const maxOdo = Math.max(...fuel.map(r => r[7]));
+     const minOdo = Math.min(...fuel.map(r => r[7]));
+     if(liters > 0) yieldVal = (maxOdo - minOdo) / liters;
+  }
+
+  return { exito: true, unit, ots, trips, fuelCount: fuel.length, yield: yieldVal.toFixed(2) };
+}
+
+function apiUpdateOTProgress(payload) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('ORDENES_TRABAJO');
+  const data = sheet.getDataRange().getValues();
+  
+  for(let i=1; i<data.length; i++) {
+    if(String(data[i][0]) === String(payload.folio)) {
+      // Append to Diagnostic/Bitacora column (Index 7)
+      const currentLog = data[i][7] || '';
+      const newEntry = `[${new Date().toLocaleString()}] ${payload.avance}\n`;
+      sheet.getRange(i+1, 8).setValue(currentLog + newEntry);
+      
+      if(payload.cerrar) {
+        sheet.getRange(i+1, 7).setValue('CERRADA');
+        sheet.getRange(i+1, 10).setValue(payload.costo || 0);
+        sheet.getRange(i+1, 11).setValue(new Date());
+        actualizarEstadoUnidad(data[i][2], 'DISPONIBLE');
+      }
+      return { exito: true };
+    }
+  }
+  return { exito: false, error: 'OT no encontrada' };
+}
+
+function apiGetTallerData() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const data = ss.getSheetByName('ORDENES_TRABAJO').getDataRange().getValues().slice(1);
+  return data.map(r => ({
+    folio: r[0] || '', 
+    fecha: r[1] ? new Date(r[1]).toLocaleDateString() : '-', 
+    unidad: r[2] || '',
+    tipo: r[3] || '', 
+    prioridad: r[4] || 'MEDIA', 
+    desc: r[5] || '', 
+    estado: r[6] || 'ABIERTA',
+    bitacora: r[7] || '' // Added Bitacora
+  }));
+}
+
+function apiRegistrarSalida(payload) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  
+  // Validar checklist
+  // Checklist is already JSON stringified in line 133
+  // Validar checklist (Expanded logic if needed)
+  const checklist = payload.checklist || [];
+  const fallaCritica = checklist.some(x => x.estado === 'MALO' && x.critico);
+  
+  // Logic remains robust enough for new checklist structure as long as it has 'estado' and 'critico'
+  // No deep changes needed in this function block, continuing...
+ 
+  if (fallaCritica) {
+    actualizarEstadoUnidad(payload.unidadId, 'MANTENIMIENTO');
+    const folio = 'OT-AUTO-' + Date.now();
+    // Create detailed diagnosis from checklist failures
+    const failures = checklist.filter(x => x.estado === 'MALO').map(x => x.item).join(', ');
+    ss.getSheetByName('ORDENES_TRABAJO').appendRow([
+      folio, new Date(), payload.unidadId, 'CORRECTIVO', 'ALTA',
+      'Bloqueo por Falla Crítica: ' + failures, 'ABIERTA', '', '[]', 0, '', 'SISTEMA'
+    ]);
+    return { exito: false, bloqueado: true, msg: 'Unidad bloqueada por falla crítica: ' + failures };
+  }
+
+  const idViaje = 'V-' + Date.now();
+  ss.getSheetByName('VIAJES').appendRow([
+    idViaje, new Date(), payload.unidadId, payload.pin, payload.odo, payload.gas,
+    payload.tipoUso, payload.motivo, JSON.stringify(checklist),
+    '', '', '', '', 'EN_RUTA', ''
+  ]);
+
+  // Actualizar odómetro y combustible en UNIDADES
+  const unitSheet = ss.getSheetByName('UNIDADES');
+  const unitData = unitSheet.getDataRange().getValues();
+  for (let j = 1; j < unitData.length; j++) {
+    if (unitData[j][0] == payload.unidadId) {
+      unitSheet.getRange(j + 1, 6).setValue(payload.odo);
+      unitSheet.getRange(j + 1, 7).setValue(payload.gas);
+      break;
+    }
+  }
+
+  actualizarEstadoUnidad(payload.unidadId, 'EN_RUTA');
+  return { exito: true };
+}
+
+function apiRegistrarEntrada(payload) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('VIAJES');
+  const data = sheet.getDataRange().getValues();
+  let row = -1;
+  
+  for(let i=data.length-1; i>0; i--) {
+    if(data[i][2] == payload.unidadId && data[i][13] == 'EN_RUTA') {
+      row = i + 1;
+      break;
+    }
+  }
+  
+  if (row === -1) return { exito: false, error: 'No hay viaje activo' };
+  
+  const fechaEntrada = new Date();
+  sheet.getRange(row, 10).setValue(fechaEntrada);
+  sheet.getRange(row, 11).setValue(payload.odo);
+  sheet.getRange(row, 12).setValue(payload.gas);
+  sheet.getRange(row, 13).setValue(payload.firma);
+  sheet.getRange(row, 14).setValue('CERRADO');
+
+  // Calcular tiempo total en horas
+  const fechaSalida = data[row - 1][1];
+  const diffHoras = (fechaEntrada.getTime() - fechaSalida.getTime()) / (1000 * 60 * 60);
+  sheet.getRange(row, 15).setValue(diffHoras.toFixed(2) + ' horas');
+
+  // Actualizar odómetro y combustible en UNIDADES
+  const unitSheet = ss.getSheetByName('UNIDADES');
+  const unitData = unitSheet.getDataRange().getValues();
+  for (let j = 1; j < unitData.length; j++) {
+    if (unitData[j][0] == payload.unidadId) {
+      unitSheet.getRange(j + 1, 6).setValue(payload.odo);
+      unitSheet.getRange(j + 1, 7).setValue(payload.gas);
+      break;
+    }
+  }
+
+  actualizarEstadoUnidad(payload.unidadId, 'DISPONIBLE');
+  return { exito: true };
+}
+
+function apiCrearOT(payload) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const folio = 'OT-' + Date.now();
+  ss.getSheetByName('ORDENES_TRABAJO').appendRow([
+    folio, new Date(), payload.unidadId, payload.tipo, payload.prioridad,
+    payload.descripcion, 'ABIERTA', '', '[]', 0, '', payload.tecnico
+  ]);
+  actualizarEstadoUnidad(payload.unidadId, 'MANTENIMIENTO');
+  return { exito: true, folio };
+}
+
+function apiCerrarOT(folio, costo) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('ORDENES_TRABAJO');
+  const data = sheet.getDataRange().getValues();
+  for(let i=1; i<data.length; i++) {
+    if(String(data[i][0]) == String(folio)) {
+      sheet.getRange(i+1, 7).setValue('CERRADA');
+      sheet.getRange(i+1, 10).setValue(costo);
+      sheet.getRange(i+1, 11).setValue(new Date());
+      actualizarEstadoUnidad(data[i][2], 'DISPONIBLE');
+      return { exito: true };
+    }
+  }
+  return { exito: false };
+}
+
+function apiRegistrarCombustible(payload) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const idCarga = 'C-' + Date.now();
+  const costoTotal = payload.litros * payload.precio;
+  ss.getSheetByName('COMBUSTIBLE').appendRow([
+    idCarga, new Date(), payload.unidadId, payload.pin, payload.litros,
+    payload.precio, costoTotal, payload.odo, ''
+  ]);
+
+  // Actualizar odómetro y combustible en UNIDADES (asumir lleno)
+  const unitSheet = ss.getSheetByName('UNIDADES');
+  const unitData = unitSheet.getDataRange().getValues();
+  for (let j = 1; j < unitData.length; j++) {
+    if (unitData[j][0] == payload.unidadId) {
+      unitSheet.getRange(j + 1, 6).setValue(payload.odo);
+      unitSheet.getRange(j + 1, 7).setValue(100); // Asumir tanque lleno
+      break;
+    }
+  }
+
+  return { exito: true };
+}
+
+function apiGetCombustibleData(payload) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let data = ss.getSheetByName('COMBUSTIBLE').getDataRange().getValues().slice(1);
+  data = applyFilters(data, payload, 1); // fecha en índice 1
+  return data.map(r => ({
+    id: r[0], fecha: new Date(r[1]).toLocaleDateString(),
+    unidad: r[2], litros: r[4], costo: r[6], odo: r[7]
+  }));
+}
+
+function apiGetViajesReport(payload) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let data = ss.getSheetByName('VIAJES').getDataRange().getValues().slice(1);
+  data = applyFilters(data, payload, 1); // fecha_salida en índice 1
+  return data.map(r => ({
+    id: r[0],
+    salida: r[1] ? new Date(r[1]).toLocaleString() : '-',
+    unidad: r[2],
+    chofer: r[3],
+    odoSalida: r[4],
+    gasSalida: r[5],
+    tipo: r[6],
+    motivo: r[7],
+    entrada: r[9] ? new Date(r[9]).toLocaleString() : '-',
+    odoEntrada: r[10],
+    gasEntrada: r[11],
+    tiempo: r[14],
+    estado: r[13]
+  }));
+}
+
+function apiGetOTReport(payload) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let data = ss.getSheetByName('ORDENES_TRABAJO').getDataRange().getValues().slice(1);
+  data = applyFilters(data, payload, 1); // fecha_creacion en índice 1
+  return data.map(r => ({
+    folio: r[0],
+    creacion: r[1] ? new Date(r[1]).toLocaleString() : '-',
+    unidad: r[2],
+    tipo: r[3],
+    prioridad: r[4],
+    desc: r[5],
+    estado: r[6],
+    costo: r[9],
+    cierre: r[10] ? new Date(r[10]).toLocaleString() : '-',
+    tecnico: r[11]
+  }));
+}
+
+function apiExportReport(tipo, payload) {
+  const tempSs = SpreadsheetApp.create('Reporte Temporal ' + tipo);
+  const sheet = tempSs.getActiveSheet();
+  
+  let headers, rowMapper, data;
+
+  if (tipo === 'viajes') {
+    headers = ['ID_VIAJE', 'FECHA_SALIDA', 'UNIDAD_ID', 'CHOFER_PIN', 'ODOMETRO_SALIDA', 'GAS_SALIDA', 'TIPO_USO', 'MOTIVO', 'FECHA_ENTRADA', 'ODOMETRO_ENTRADA', 'GAS_ENTRADA', 'TIEMPO_TOTAL'];
+    data = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('VIAJES').getDataRange().getValues().slice(1);
+    data = applyFilters(data, payload, 1);
+    rowMapper = r => [r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[9], r[10], r[11], r[14]];
+  } else if (tipo === 'ot') {
+    headers = ['FOLIO', 'FECHA_CREACION', 'UNIDAD_ID', 'TIPO_MTTO', 'PRIORIDAD', 'DESCRIPCION', 'ESTADO', 'COSTO_TOTAL', 'FECHA_CIERRE', 'TECNICO'];
+    data = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('ORDENES_TRABAJO').getDataRange().getValues().slice(1);
+    data = applyFilters(data, payload, 1);
+    rowMapper = r => [r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[9], r[10], r[11]];
+  } else if (tipo === 'combustible') {
+    headers = ['ID_CARGA', 'FECHA', 'UNIDAD_ID', 'LITROS', 'PRECIO', 'COSTO_TOTAL', 'ODOMETRO'];
+    data = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('COMBUSTIBLE').getDataRange().getValues().slice(1);
+    data = applyFilters(data, payload, 1);
+    rowMapper = r => [r[0], r[1], r[2], r[4], r[5], r[6], r[7]];
+  }
+
+  sheet.appendRow(headers);
+  data.forEach(r => sheet.appendRow(rowMapper(r)));
+
+  const pdfBlob = tempSs.getAs('application/pdf').setName('Reporte_' + tipo + '.pdf');
+  const folder = DriveApp.getFolderById('your_folder_id_if_needed_or_root'); // Cambia si es necesario
+  const pdfFile = DriveApp.createFile(pdfBlob);
+  pdfFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+  // Eliminar spreadsheet temporal
+  DriveApp.getFileById(tempSs.getId()).setTrashed(true);
+
+  return { exito: true, url: pdfFile.getDownloadUrl() };
+}
+
+// --- HELPER ---
+function actualizarEstadoUnidad(id, estado) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('UNIDADES');
+  const data = sheet.getDataRange().getValues();
+  for(let i=1; i<data.length; i++) {
+    if(String(data[i][0]) == String(id)) {
+      sheet.getRange(i+1, 5).setValue(estado);
+      break;
+    }
+  }
+}
+
+function applyFilters(data, payload, fechaIndex) {
+  if (!payload) return data;
+  const { desde, hasta, unidadId } = payload;
+  
+  return data.filter(row => {
+    let match = true;
+    
+    if (desde) {
+      const fechaRow = row[fechaIndex] ? new Date(row[fechaIndex]) : null;
+      if (fechaRow && fechaRow < new Date(desde)) match = false;
+    }
+    
+    if (hasta) {
+      const fechaRow = row[fechaIndex] ? new Date(row[fechaIndex]) : null;
+      if (fechaRow && fechaRow > new Date(hasta)) match = false;
+    }
+    
+    if (unidadId && row[2] !== unidadId) match = false;
+    
+    return match;
+  });
+}
+
+// ==================================================
+// FASE 1: SEGURIDAD Y AUTENTICACIÓN
+// ==================================================
+
+// Definición de permisos por rol
+const PERMISOS_ROL = {
+  'SUPER_ADMIN': ['*'],
+  'ADMIN': ['dashboard', 'flota', 'taller', 'combustible', 'reportes', 'usuarios', 'unidades'],
+  'TALLER': ['dashboard', 'taller', 'reportes_ot'],
+  'CHOFER': ['dashboard', 'salida', 'entrada', 'combustible_registro'],
+  'SUPERVISOR': ['dashboard', 'flota', 'reportes', 'alertas']
+};
+
+function apiLoginWithSession(pin) {
+  const loginResult = apiLogin(pin);
+  if (!loginResult.exito) return loginResult;
+  
+  const token = Utilities.getUuid();
+  const expires = new Date();
+  expires.setHours(expires.getHours() + 8);
+  
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sessSheet = ss.getSheetByName('SESIONES');
+  if (!sessSheet) {
+    sessSheet = ss.insertSheet('SESIONES');
+    sessSheet.appendRow(['TOKEN', 'PIN', 'NOMBRE', 'ROL', 'FECHA_CREACION', 'EXPIRA', 'ACTIVO']);
+    sessSheet.getRange(1, 1, 1, 7).setBackground('#0f172a').setFontColor('white').setFontWeight('bold');
+    sessSheet.setFrozenRows(1);
+  }
+  
+  sessSheet.appendRow([token, pin, loginResult.user.nombre, loginResult.user.rol, new Date(), expires, true]);
+  
+  return { 
+    ...loginResult, 
+    token,
+    expiresAt: expires.toISOString(),
+    permisos: PERMISOS_ROL[loginResult.user.rol] || []
+  };
+}
+
+function validarSesion(token) {
+  if (!token) return { valido: false, error: 'Token no proporcionado' };
+  
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sessSheet = ss.getSheetByName('SESIONES');
+  if (!sessSheet) return { valido: false, error: 'Sin sesiones activas' };
+  
+  const data = sessSheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === token && data[i][6] === true) {
+      if (new Date() < new Date(data[i][5])) {
+        return { 
+          valido: true, 
+          pin: data[i][1], 
+          nombre: data[i][2], 
+          rol: data[i][3],
+          permisos: PERMISOS_ROL[data[i][3]] || []
+        };
+      } else {
+        // Sesión expirada
+        sessSheet.getRange(i + 1, 7).setValue(false);
+        return { valido: false, error: 'Sesión expirada' };
+      }
+    }
+  }
+  return { valido: false, error: 'Token inválido' };
+}
+
+function apiLogout(token) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sessSheet = ss.getSheetByName('SESIONES');
+  if (!sessSheet) return { exito: false, error: 'Sin sesiones' };
+  
+  const data = sessSheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === token) {
+      sessSheet.getRange(i + 1, 7).setValue(false);
+      return { exito: true, mensaje: 'Sesión cerrada correctamente' };
+    }
+  }
+  return { exito: false, error: 'Token no encontrado' };
+}
+
+function verificarPermiso(pin, modulo) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('USUARIOS');
+  const data = sheet.getDataRange().getValues();
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(pin)) {
+      const rol = data[i][2];
+      const permisos = PERMISOS_ROL[rol] || [];
+      return {
+        permitido: permisos.includes('*') || permisos.includes(modulo),
+        rol: rol,
+        modulo: modulo
+      };
+    }
+  }
+  return { permitido: false, error: 'Usuario no encontrado' };
+}
+
+// ==================================================
+// FASE 2: GESTIÓN AVANZADA DE UNIDADES
+// ==================================================
+
+function apiGetUnidades(filtros) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const data = ss.getSheetByName('UNIDADES').getDataRange().getValues().slice(1);
+  
+  let resultado = data.map(u => ({
+    id: u[0],
+    tipo: u[1],
+    modelo: u[2],
+    placas: u[3],
+    estado: u[4],
+    odometro: u[5],
+    combustible: u[6],
+    foto: u[7]
+  }));
+  
+  if (filtros) {
+    if (filtros.estado) resultado = resultado.filter(u => u.estado === filtros.estado);
+    if (filtros.tipo) resultado = resultado.filter(u => u.tipo === filtros.tipo);
+    if (filtros.excluirBaja !== false) resultado = resultado.filter(u => u.estado !== 'BAJA');
+    if (filtros.buscar) {
+      const term = filtros.buscar.toLowerCase();
+      resultado = resultado.filter(u => 
+        u.id.toLowerCase().includes(term) || 
+        u.modelo.toLowerCase().includes(term) ||
+        u.placas.toLowerCase().includes(term)
+      );
+    }
+  }
+  
+  return { exito: true, unidades: resultado, total: resultado.length };
+}
+
+function apiCrearUnidad(payload) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('UNIDADES');
+  
+  if (!payload.id || !payload.tipo || !payload.marcaModelo) {
+    return { exito: false, error: 'Faltan campos obligatorios (id, tipo, marcaModelo)' };
+  }
+  
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]).toLowerCase() === String(payload.id).toLowerCase()) {
+      return { exito: false, error: 'ID de unidad ya existe' };
+    }
+  }
+  
+  sheet.appendRow([
+    payload.id,
+    payload.tipo,
+    payload.marcaModelo,
+    payload.placas || '',
+    'DISPONIBLE',
+    payload.odometro || 0,
+    payload.combustible || 100,
+    payload.fotoUrl || ''
+  ]);
+  
+  crearAlerta('UNIDAD_NUEVA', `Nueva unidad registrada: ${payload.id} (${payload.marcaModelo})`, payload.id, 'BAJA');
+  
+  return { exito: true, mensaje: 'Unidad creada correctamente', id: payload.id };
+}
+
+function apiActualizarUnidad(id, payload) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('UNIDADES');
+  const data = sheet.getDataRange().getValues();
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(id)) {
+      if (payload.tipo) sheet.getRange(i + 1, 2).setValue(payload.tipo);
+      if (payload.marcaModelo) sheet.getRange(i + 1, 3).setValue(payload.marcaModelo);
+      if (payload.placas) sheet.getRange(i + 1, 4).setValue(payload.placas);
+      if (payload.estado) sheet.getRange(i + 1, 5).setValue(payload.estado);
+      if (payload.odometro) sheet.getRange(i + 1, 6).setValue(payload.odometro);
+      if (payload.combustible) sheet.getRange(i + 1, 7).setValue(payload.combustible);
+      if (payload.fotoUrl) sheet.getRange(i + 1, 8).setValue(payload.fotoUrl);
+      return { exito: true, mensaje: 'Unidad actualizada' };
+    }
+  }
+  return { exito: false, error: 'Unidad no encontrada' };
+}
+
+function apiEliminarUnidad(id) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('UNIDADES');
+  const data = sheet.getDataRange().getValues();
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(id)) {
+      if (data[i][4] === 'EN_RUTA') {
+        return { exito: false, error: 'No se puede dar de baja una unidad en ruta' };
+      }
+      sheet.getRange(i + 1, 5).setValue('BAJA');
+      crearAlerta('UNIDAD_BAJA', `Unidad ${id} dada de baja`, id, 'MEDIA');
+      return { exito: true, mensaje: 'Unidad dada de baja' };
+    }
+  }
+  return { exito: false, error: 'Unidad no encontrada' };
+}
+
+function apiReactivarUnidad(id) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('UNIDADES');
+  const data = sheet.getDataRange().getValues();
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(id)) {
+      sheet.getRange(i + 1, 5).setValue('DISPONIBLE');
+      return { exito: true, mensaje: 'Unidad reactivada' };
+    }
+  }
+  return { exito: false, error: 'Unidad no encontrada' };
+}
+
+// ==================================================
+// FASE 3: GESTIÓN DE USUARIOS
+// ==================================================
+
+function apiGetUsuarios(filtros) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const data = ss.getSheetByName('USUARIOS').getDataRange().getValues().slice(1);
+  
+  let resultado = data.map(u => ({
+    pin: u[0],
+    nombre: u[1],
+    rol: u[2],
+    estado: u[3],
+    email: u[4]
+  }));
+  
+  if (filtros) {
+    if (filtros.estado) resultado = resultado.filter(u => u.estado === filtros.estado);
+    if (filtros.rol) resultado = resultado.filter(u => u.rol === filtros.rol);
+    if (filtros.buscar) {
+      const term = filtros.buscar.toLowerCase();
+      resultado = resultado.filter(u => 
+        u.nombre.toLowerCase().includes(term) ||
+        String(u.pin).includes(term)
+      );
+    }
+  }
+  
+  return { exito: true, usuarios: resultado, total: resultado.length };
+}
+
+function apiCrearUsuario(payload) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('USUARIOS');
+  
+  if (!payload.pin || !payload.nombre) {
+    return { exito: false, error: 'PIN y nombre son obligatorios' };
+  }
+  
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(payload.pin)) {
+      return { exito: false, error: 'PIN ya existe' };
+    }
+  }
+  
+  const rolesValidos = Object.keys(PERMISOS_ROL);
+  const rol = rolesValidos.includes(payload.rol) ? payload.rol : 'CHOFER';
+  
+  sheet.appendRow([
+    payload.pin,
+    payload.nombre,
+    rol,
+    'ACTIVO',
+    payload.email || ''
+  ]);
+  
+  return { exito: true, mensaje: 'Usuario creado correctamente' };
+}
+
+function apiActualizarUsuario(pin, payload) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('USUARIOS');
+  const data = sheet.getDataRange().getValues();
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(pin)) {
+      if (payload.nombre) sheet.getRange(i + 1, 2).setValue(payload.nombre);
+      if (payload.rol) {
+        const rolesValidos = Object.keys(PERMISOS_ROL);
+        if (rolesValidos.includes(payload.rol)) {
+          sheet.getRange(i + 1, 3).setValue(payload.rol);
+        }
+      }
+      if (payload.estado) sheet.getRange(i + 1, 4).setValue(payload.estado);
+      if (payload.email) sheet.getRange(i + 1, 5).setValue(payload.email);
+      return { exito: true, mensaje: 'Usuario actualizado' };
+    }
+  }
+  return { exito: false, error: 'Usuario no encontrado' };
+}
+
+function apiDesactivarUsuario(pin) {
+  return apiActualizarUsuario(pin, { estado: 'INACTIVO' });
+}
+
+function apiActivarUsuario(pin) {
+  return apiActualizarUsuario(pin, { estado: 'ACTIVO' });
+}
+
+function apiGetRolesDisponibles() {
+  return {
+    exito: true,
+    roles: Object.entries(PERMISOS_ROL).map(([rol, permisos]) => ({
+      rol,
+      permisos,
+      descripcion: getDescripcionRol(rol)
+    }))
+  };
+}
+
+function getDescripcionRol(rol) {
+  const descripciones = {
+    'SUPER_ADMIN': 'Acceso total al sistema',
+    'ADMIN': 'Administrador con acceso a todas las operaciones',
+    'TALLER': 'Gestión de órdenes de trabajo y mantenimiento',
+    'CHOFER': 'Registro de salidas, entradas y combustible',
+    'SUPERVISOR': 'Supervisión de flota y reportes'
+  };
+  return descripciones[rol] || 'Sin descripción';
+}
+
+// ==================================================
+// FASE 4: SISTEMA DE ALERTAS Y NOTIFICACIONES
+// ==================================================
+
+function crearAlerta(tipo, mensaje, unidadId, prioridad) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName('ALERTAS');
+  
+  if (!sheet) {
+    sheet = ss.insertSheet('ALERTAS');
+    sheet.appendRow(['ID', 'TIPO', 'MENSAJE', 'UNIDAD_ID', 'FECHA', 'LEIDA', 'PRIORIDAD']);
+    sheet.getRange(1, 1, 1, 7).setBackground('#0f172a').setFontColor('white').setFontWeight('bold');
+    sheet.setFrozenRows(1);
+  }
+  
+  const id = 'ALR-' + Date.now();
+  sheet.appendRow([id, tipo, mensaje, unidadId || '', new Date(), false, prioridad || 'MEDIA']);
+  
+  return id;
+}
+
+function apiGetAlertas(filtros) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('ALERTAS');
+  if (!sheet) return { exito: true, alertas: [], total: 0, noLeidas: 0 };
+  
+  let data = sheet.getDataRange().getValues().slice(1);
+  
+  let alertas = data.map(a => ({
+    id: a[0],
+    tipo: a[1],
+    mensaje: a[2],
+    unidadId: a[3],
+    fecha: a[4],
+    leida: a[5],
+    prioridad: a[6]
+  }));
+  
+  const noLeidas = alertas.filter(a => !a.leida).length;
+  
+  if (filtros) {
+    if (filtros.soloNoLeidas) alertas = alertas.filter(a => !a.leida);
+    if (filtros.tipo) alertas = alertas.filter(a => a.tipo === filtros.tipo);
+    if (filtros.prioridad) alertas = alertas.filter(a => a.prioridad === filtros.prioridad);
+    if (filtros.unidadId) alertas = alertas.filter(a => a.unidadId === filtros.unidadId);
+  }
+  
+  alertas.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+  
+  if (filtros && filtros.limite) {
+    alertas = alertas.slice(0, filtros.limite);
+  }
+  
+  return { exito: true, alertas, total: alertas.length, noLeidas };
+}
+
+function apiMarcarAlertaLeida(id) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('ALERTAS');
+  if (!sheet) return { exito: false, error: 'No hay alertas' };
+  
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === id) {
+      sheet.getRange(i + 1, 6).setValue(true);
+      return { exito: true };
+    }
+  }
+  return { exito: false, error: 'Alerta no encontrada' };
+}
+
+function apiMarcarTodasLeidas() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('ALERTAS');
+  if (!sheet) return { exito: false };
+  
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][5] === false) {
+      sheet.getRange(i + 1, 6).setValue(true);
+    }
+  }
+  return { exito: true, mensaje: 'Todas las alertas marcadas como leídas' };
+}
+
+function apiEliminarAlerta(id) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('ALERTAS');
+  if (!sheet) return { exito: false };
+  
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === id) {
+      sheet.deleteRow(i + 1);
+      return { exito: true };
+    }
+  }
+  return { exito: false, error: 'Alerta no encontrada' };
+}
+
+// Función para ejecutar con trigger diario
+function verificarMantenimientosProgramados() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const unidades = ss.getSheetByName('UNIDADES').getDataRange().getValues().slice(1);
+  let alertasCreadas = 0;
+  
+  unidades.forEach(u => {
+    const id = u[0];
+    const odo = u[5] || 0;
+    const estado = u[4];
+    
+    if (estado === 'BAJA') return;
+    
+    // Alerta cada 5000 km
+    const proximoMtto = Math.ceil(odo / 5000) * 5000;
+    if (odo > 0 && (proximoMtto - odo) <= 200) {
+      crearAlerta(
+        'MANTENIMIENTO_PREVENTIVO',
+        `Unidad ${id} próxima a mantenimiento preventivo (${odo}/${proximoMtto} km)`,
+        id,
+        'ALTA'
+      );
+      alertasCreadas++;
+    }
+    
+    // Alerta combustible bajo (<20%)
+    const gas = u[6] || 0;
+    if (gas < 20 && estado !== 'MANTENIMIENTO') {
+      crearAlerta(
+        'COMBUSTIBLE_BAJO',
+        `Unidad ${id} con combustible bajo (${gas}%)`,
+        id,
+        'MEDIA'
+      );
+      alertasCreadas++;
+    }
+  });
+  
+  return { alertasCreadas };
+}
+
+// ==================================================
+// FASE 5: MÉTRICAS Y ANALYTICS AVANZADOS
+// ==================================================
+
+function apiGetMetricasAvanzadas(periodo) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const combustible = ss.getSheetByName('COMBUSTIBLE').getDataRange().getValues().slice(1);
+  const viajes = ss.getSheetByName('VIAJES').getDataRange().getValues().slice(1);
+  const ots = ss.getSheetByName('ORDENES_TRABAJO').getDataRange().getValues().slice(1);
+  const unidades = ss.getSheetByName('UNIDADES').getDataRange().getValues().slice(1);
+  
+  // Determinar período
+  const hoy = new Date();
+  let inicio;
+  switch(periodo) {
+    case 'semana':
+      inicio = new Date(hoy.getTime() - 7 * 24 * 60 * 60 * 1000);
+      break;
+    case 'anio':
+      inicio = new Date(hoy.getFullYear(), 0, 1);
+      break;
+    case 'mes':
+    default:
+      inicio = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+  }
+  
+  // Filtrar datos por período
+  let viajesPeriodo = viajes.filter(v => v[1] && new Date(v[1]) >= inicio);
+  let combustiblePeriodo = combustible.filter(c => c[1] && new Date(c[1]) >= inicio);
+  let otsPeriodo = ots.filter(o => o[1] && new Date(o[1]) >= inicio);
+  
+  // Calcular métricas de viajes
+  const totalKm = viajesPeriodo.reduce((acc, v) => {
+    const kmViaje = (v[10] || 0) - (v[4] || 0);
+    return acc + (kmViaje > 0 ? kmViaje : 0);
+  }, 0);
+  
+  const viajesCompletados = viajesPeriodo.filter(v => v[13] === 'CERRADO').length;
+  const viajesEnRuta = viajesPeriodo.filter(v => v[13] === 'EN_RUTA').length;
+  
+  // Calcular métricas de combustible
+  const totalLitros = combustiblePeriodo.reduce((acc, c) => acc + (parseFloat(c[4]) || 0), 0);
+  const totalGastoCombustible = combustiblePeriodo.reduce((acc, c) => acc + (parseFloat(c[6]) || 0), 0);
+  const rendimientoPromedio = totalLitros > 0 ? (totalKm / totalLitros) : 0;
+  
+  // Calcular métricas de mantenimiento
+  const otsCerradas = otsPeriodo.filter(o => o[6] === 'CERRADA');
+  const totalGastoMtto = otsCerradas.reduce((acc, o) => acc + (parseFloat(o[9]) || 0), 0);
+  const otsAbiertas = otsPeriodo.filter(o => o[6] !== 'CERRADA').length;
+  
+  // Estadísticas de flota
+  const flotaTotal = unidades.filter(u => u[4] !== 'BAJA').length;
+  const flotaDisponible = unidades.filter(u => u[4] === 'DISPONIBLE').length;
+  const flotaEnRuta = unidades.filter(u => u[4] === 'EN_RUTA').length;
+  const flotaMantenimiento = unidades.filter(u => u[4] === 'MANTENIMIENTO').length;
+  
+  return {
+    exito: true,
+    periodo: {
+      tipo: periodo || 'mes',
+      inicio: inicio.toISOString(),
+      fin: hoy.toISOString()
+    },
+    flota: {
+      total: flotaTotal,
+      disponible: flotaDisponible,
+      enRuta: flotaEnRuta,
+      mantenimiento: flotaMantenimiento,
+      utilizacion: flotaTotal > 0 ? ((flotaEnRuta / flotaTotal) * 100).toFixed(1) : 0
+    },
+    viajes: {
+      total: viajesPeriodo.length,
+      completados: viajesCompletados,
+      enRuta: viajesEnRuta,
+      kmTotales: totalKm,
+      promedioKmViaje: viajesCompletados > 0 ? (totalKm / viajesCompletados).toFixed(1) : 0
+    },
+    combustible: {
+      litros: totalLitros.toFixed(2),
+      gastoTotal: totalGastoCombustible.toFixed(2),
+      cargas: combustiblePeriodo.length,
+      rendimientoPromedio: rendimientoPromedio.toFixed(2),
+      costoPromedioPorLitro: combustiblePeriodo.length > 0 
+        ? (totalGastoCombustible / totalLitros).toFixed(2) : 0
+    },
+    mantenimiento: {
+      otsCreadas: otsPeriodo.length,
+      otsCerradas: otsCerradas.length,
+      otsAbiertas: otsAbiertas,
+      gastoTotal: totalGastoMtto.toFixed(2),
+      costoPromedioOT: otsCerradas.length > 0 
+        ? (totalGastoMtto / otsCerradas.length).toFixed(2) : 0
+    },
+    costos: {
+      combustible: totalGastoCombustible.toFixed(2),
+      mantenimiento: totalGastoMtto.toFixed(2),
+      total: (totalGastoCombustible + totalGastoMtto).toFixed(2),
+      costoPorKm: totalKm > 0 
+        ? ((totalGastoCombustible + totalGastoMtto) / totalKm).toFixed(2) : 0
+    }
+  };
+}
+
+function apiGetTopConsumo(limite) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const combustible = ss.getSheetByName('COMBUSTIBLE').getDataRange().getValues().slice(1);
+  const unidades = ss.getSheetByName('UNIDADES').getDataRange().getValues().slice(1);
+  
+  const consumoPorUnidad = {};
+  combustible.forEach(c => {
+    const unidadId = c[2];
+    if (!consumoPorUnidad[unidadId]) {
+      consumoPorUnidad[unidadId] = { litros: 0, gasto: 0, cargas: 0 };
+    }
+    consumoPorUnidad[unidadId].litros += (parseFloat(c[4]) || 0);
+    consumoPorUnidad[unidadId].gasto += (parseFloat(c[6]) || 0);
+    consumoPorUnidad[unidadId].cargas++;
+  });
+  
+  // Agregar info de unidad
+  const ranking = Object.entries(consumoPorUnidad)
+    .map(([id, data]) => {
+      const unidad = unidades.find(u => u[0] === id);
+      return { 
+        unidadId: id, 
+        modelo: unidad ? unidad[2] : 'Desconocido',
+        tipo: unidad ? unidad[1] : '',
+        ...data 
+      };
+    })
+    .sort((a, b) => b.litros - a.litros)
+    .slice(0, limite || 5);
+  
+  return { exito: true, ranking };
+}
+
+function apiGetHistorialUnidad(unidadId) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  
+  // Viajes
+  const viajes = ss.getSheetByName('VIAJES').getDataRange().getValues().slice(1)
+    .filter(v => String(v[2]) === String(unidadId))
+    .map(v => ({
+      tipo: 'viaje',
+      fecha: v[1],
+      detalle: `${v[6]} - ${v[7]}`,
+      estado: v[13]
+    }));
+  
+  // OTs
+  const ots = ss.getSheetByName('ORDENES_TRABAJO').getDataRange().getValues().slice(1)
+    .filter(o => String(o[2]) === String(unidadId))
+    .map(o => ({
+      tipo: 'ot',
+      fecha: o[1],
+      detalle: `${o[0]}: ${o[5]}`,
+      estado: o[6]
+    }));
+  
+  // Cargas combustible
+  const cargas = ss.getSheetByName('COMBUSTIBLE').getDataRange().getValues().slice(1)
+    .filter(c => String(c[2]) === String(unidadId))
+    .map(c => ({
+      tipo: 'combustible',
+      fecha: c[1],
+      detalle: `${c[4]} litros - $${c[6]}`,
+      estado: 'COMPLETADO'
+    }));
+  
+  // Combinar y ordenar por fecha
+  const historial = [...viajes, ...ots, ...cargas]
+    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
+    .slice(0, 50);
+  
+  return { exito: true, historial, total: historial.length };
+}
+
+// ==================================================
+// FASE 6: OPTIMIZACIÓN Y RENDIMIENTO
+// ==================================================
+
+function getCachedData(key, fetchFunction, ttl) {
+  const cache = CacheService.getScriptCache();
+  let data = cache.get(key);
+  
+  if (data) {
+    try {
+      return JSON.parse(data);
+    } catch(e) {
+      // Si hay error parseando, regenerar
+    }
+  }
+  
+  data = fetchFunction();
+  
+  // Solo cachear si los datos son menores a 100KB
+  const jsonData = JSON.stringify(data);
+  if (jsonData.length < 100000) {
+    cache.put(key, jsonData, ttl || 300);
+  }
+  
+  return data;
+}
+
+function apiGetDashboardDataCached() {
+  return getCachedData('dashboard_data', apiGetDashboardData, 60);
+}
+
+function limpiarCache() {
+  const cache = CacheService.getScriptCache();
+  cache.removeAll(['dashboard_data', 'metricas_mes']);
+  return { exito: true, mensaje: 'Caché limpiado' };
+}
+
+// Actualización en lote para mejor rendimiento
+function actualizarMultiplesUnidades(updates) {
+  if (!Array.isArray(updates) || updates.length === 0) {
+    return { exito: false, error: 'No hay actualizaciones' };
+  }
+  
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('UNIDADES');
+  const data = sheet.getDataRange().getValues();
+  let actualizados = 0;
+  
+  updates.forEach(update => {
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]) === String(update.id)) {
+        const row = i + 1;
+        const valores = [[
+          update.tipo || data[i][1],
+          update.modelo || data[i][2],
+          update.placas || data[i][3],
+          update.estado || data[i][4],
+          update.odometro || data[i][5],
+          update.combustible || data[i][6],
+          update.foto || data[i][7]
+        ]];
+        sheet.getRange(row, 2, 1, 7).setValues(valores);
+        actualizados++;
+        break;
+      }
+    }
+  });
+  
+  limpiarCache();
+  return { exito: true, actualizados };
+}
+
+// ==================================================
+// UTILIDADES ADICIONALES
+// ==================================================
+
+function apiGetEstadisticasRapidas() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const unidades = ss.getSheetByName('UNIDADES').getDataRange().getValues().slice(1);
+  const ots = ss.getSheetByName('ORDENES_TRABAJO').getDataRange().getValues().slice(1);
+  const alertas = ss.getSheetByName('ALERTAS');
+  
+  const alertasNoLeidas = alertas 
+    ? alertas.getDataRange().getValues().slice(1).filter(a => a[5] === false).length 
+    : 0;
+  
+  return {
+    flotaTotal: unidades.filter(u => u[4] !== 'BAJA').length,
+    enRuta: unidades.filter(u => u[4] === 'EN_RUTA').length,
+    enTaller: unidades.filter(u => u[4] === 'MANTENIMIENTO').length,
+    otsAbiertas: ots.filter(o => o[6] !== 'CERRADA').length,
+    alertasNoLeidas: alertasNoLeidas
+  };
+}
+
+function apiGetConfiguracion() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName('CONFIG');
+  
+  if (!sheet) {
+    sheet = ss.insertSheet('CONFIG');
+    sheet.appendRow(['CLAVE', 'VALOR']);
+    sheet.getRange(1, 1, 1, 2).setBackground('#0f172a').setFontColor('white').setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    // Valores por defecto
+    sheet.appendRow(['EMPRESA_NOMBRE', 'FleetControl Pro']);
+    sheet.appendRow(['KM_MANTENIMIENTO', '5000']);
+    sheet.appendRow(['ALERTA_COMBUSTIBLE_MIN', '20']);
+    sheet.appendRow(['SESION_DURACION_HORAS', '8']);
+  }
+  
+  const data = sheet.getDataRange().getValues().slice(1);
+  const config = {};
+  data.forEach(row => {
+    config[row[0]] = row[1];
+  });
+  
+  return { exito: true, config };
+}
+
+function apiSetConfiguracion(clave, valor) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('CONFIG');
+  if (!sheet) return { exito: false, error: 'Hoja CONFIG no existe' };
+  
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === clave) {
+      sheet.getRange(i + 1, 2).setValue(valor);
+      return { exito: true };
+    }
+  }
+  
+  // Si no existe, crear
+  sheet.appendRow([clave, valor]);
+  return { exito: true, mensaje: 'Configuración creada' };
+}
