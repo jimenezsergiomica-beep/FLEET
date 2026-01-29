@@ -2541,3 +2541,448 @@ function generarPDFOrdenTrabajo(folio) {
   return { exito: true, url: url };
 }
 
+// ============================================================
+// FUNCIONES PARA DASHBOARD ADMIN
+// ============================================================
+
+/**
+ * Crea una nueva unidad en la flota
+ */
+function crearNuevaUnidad(datos) {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sh = ss.getSheetByName('FLOTA');
+    
+    if(!sh) {
+      return { exito: false, error: 'Hoja FLOTA no encontrada' };
+    }
+    
+    // Verificar que no exista ya la unidad
+    const data = sh.getDataRange().getValues();
+    for(let i = 1; i < data.length; i++) {
+      if(data[i][0] === datos.id) {
+        return { exito: false, error: 'Ya existe una unidad con ese ID' };
+      }
+    }
+    
+    // Agregar nueva unidad
+    const nuevaFila = [
+      datos.id,           // ID
+      datos.modelo || '', // Modelo
+      datos.placas || '', // Placas
+      datos.anio || '',   // Año
+      '',                 // Marca
+      '',                 // Color
+      '',                 // Serie
+      'DISPONIBLE',       // Estado
+      '',                 // Chofer asignado
+      0,                  // KM actual
+      new Date(),         // Fecha de registro
+      '',                 // Foto
+      '',                 // Observaciones
+      ''                  // Documentos
+    ];
+    
+    sh.appendRow(nuevaFila);
+    
+    // Registrar en trazabilidad
+    registrarTrazabilidad('SISTEMA', 'CREAR_UNIDAD', `Nueva unidad creada: ${datos.id}`);
+    
+    return { exito: true, mensaje: 'Unidad creada correctamente' };
+    
+  } catch(e) {
+    Logger.log('Error en crearNuevaUnidad: ' + e.message);
+    return { exito: false, error: e.message };
+  }
+}
+
+/**
+ * Obtiene el historial de inspecciones
+ */
+function obtenerHistorialInspecciones() {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sh = ss.getSheetByName('INSPECCIONES');
+    
+    if(!sh) {
+      return [];
+    }
+    
+    const data = sh.getDataRange().getValues();
+    
+    if(data.length <= 1) {
+      return [];
+    }
+    
+    // Obtener últimas 20 inspecciones (excluyendo header)
+    const inspecciones = [];
+    const inicio = Math.max(1, data.length - 20);
+    
+    for(let i = data.length - 1; i >= inicio; i--) {
+      const row = data[i];
+      inspecciones.push({
+        unidad: row[0] || 'N/A',
+        fecha: row[1] ? Utilities.formatDate(new Date(row[1]), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm') : '',
+        chofer: row[2] || 'N/A',
+        resultado: row[3] || 'N/A',
+        observaciones: row[4] || ''
+      });
+    }
+    
+    return inspecciones;
+    
+  } catch(e) {
+    Logger.log('Error en obtenerHistorialInspecciones: ' + e.message);
+    return [];
+  }
+}
+
+/**
+ * Valida PIN de usuario
+ */
+function validarPin(pin) {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sh = ss.getSheetByName('USUARIOS');
+    
+    if(!sh) {
+      return { exito: false, error: 'Hoja USUARIOS no encontrada' };
+    }
+    
+    const data = sh.getDataRange().getValues();
+    
+    for(let i = 1; i < data.length; i++) {
+      const row = data[i];
+      if(row[0] == pin && row[3] === true) { // PIN y ACTIVO
+        return {
+          exito: true,
+          pin: row[0],
+          nombre: row[1],
+          rol: row[2],
+          activo: row[3]
+        };
+      }
+    }
+    
+    return { exito: false, error: 'PIN incorrecto o usuario inactivo' };
+    
+  } catch(e) {
+    Logger.log('Error en validarPin: ' + e.message);
+    return { exito: false, error: e.message };
+  }
+}
+
+// ============================================================
+// FUNCIONES PARA DASHBOARD TALLER
+// ============================================================
+
+/**
+ * Obtiene las órdenes de trabajo pendientes
+ */
+function obtenerOTsPendientes() {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sh = ss.getSheetByName('ORDENES_TRABAJO');
+    
+    if(!sh) {
+      return [];
+    }
+    
+    const data = sh.getDataRange().getValues();
+    
+    if(data.length <= 1) {
+      return [];
+    }
+    
+    const ots = [];
+    for(let i = 1; i < data.length; i++) {
+      const row = data[i];
+      if(row[7] === 'PENDIENTE' || row[7] === 'EN_PROCESO') {
+        ots.push({
+          folio: row[0],
+          unidad: row[1],
+          tipo: row[2],
+          actividad: row[3],
+          fecha: row[4] ? Utilities.formatDate(new Date(row[4]), Session.getScriptTimeZone(), 'dd/MM/yyyy') : '',
+          tecnico: row[5] || 'Sin asignar',
+          estado: row[7] || 'PENDIENTE'
+        });
+      }
+    }
+    
+    return ots;
+    
+  } catch(e) {
+    Logger.log('Error en obtenerOTsPendientes: ' + e.message);
+    return [];
+  }
+}
+
+/**
+ * Obtiene el detalle completo de una OT
+ */
+function obtenerDetalleOT(folio) {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sh = ss.getSheetByName('ORDENES_TRABAJO');
+    
+    if(!sh) {
+      return null;
+    }
+    
+    const data = sh.getDataRange().getValues();
+    
+    for(let i = 1; i < data.length; i++) {
+      const row = data[i];
+      if(row[0] == folio) {
+        return {
+          folio: row[0],
+          unidad: row[1],
+          tipo: row[2],
+          actividad: row[3],
+          fecha: row[4] ? Utilities.formatDate(new Date(row[4]), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm') : '',
+          tecnico: row[5] || 'Sin asignar',
+          diagnostico: row[6] || '',
+          estado: row[7] || 'PENDIENTE',
+          insumos: row[8] ? row[8].split(',').map(i => i.trim()) : [],
+          refacciones: row[9] ? row[9].split(',').map(r => r.trim()) : [],
+          observaciones: row[10] || ''
+        };
+      }
+    }
+    
+    return null;
+    
+  } catch(e) {
+    Logger.log('Error en obtenerDetalleOT: ' + e.message);
+    return null;
+  }
+}
+
+/**
+ * Cierra una orden de trabajo
+ */
+function cerrarOrdenTrabajo(folio, diagnostico, observaciones) {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sh = ss.getSheetByName('ORDENES_TRABAJO');
+    
+    if(!sh) {
+      return { exito: false, error: 'Hoja ORDENES_TRABAJO no encontrada' };
+    }
+    
+    const data = sh.getDataRange().getValues();
+    
+    for(let i = 1; i < data.length; i++) {
+      const row = data[i];
+      if(row[0] == folio) {
+        // Actualizar diagnóstico, observaciones y estado
+        sh.getRange(i + 1, 7).setValue(diagnostico); // Diagnóstico
+        sh.getRange(i + 1, 8).setValue('CERRADA'); // Estado
+        sh.getRange(i + 1, 11).setValue(observaciones || ''); // Observaciones
+        sh.getRange(i + 1, 12).setValue(new Date()); // Fecha de cierre
+        
+        // Registrar en trazabilidad
+        registrarTrazabilidad('TALLER', 'CERRAR_OT', `OT ${folio} cerrada`);
+        
+        return { exito: true, mensaje: 'OT cerrada correctamente' };
+      }
+    }
+    
+    return { exito: false, error: 'OT no encontrada' };
+    
+  } catch(e) {
+    Logger.log('Error en cerrarOrdenTrabajo: ' + e.message);
+    return { exito: false, error: e.message };
+  }
+}
+
+// ============================================================
+// FUNCIONES PARA DASHBOARD CHOFER
+// ============================================================
+
+/**
+ * Obtiene las unidades disponibles para asignación
+ */
+function obtenerUnidadesDisponibles() {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sh = ss.getSheetByName('FLOTA');
+    
+    if(!sh) {
+      return [];
+    }
+    
+    const data = sh.getDataRange().getValues();
+    const unidades = [];
+    
+    for(let i = 1; i < data.length; i++) {
+      const row = data[i];
+      if(row[7] === 'DISPONIBLE' || row[7] === 'ACTIVA') {
+        unidades.push({
+          id: row[0],
+          modelo: row[1],
+          placas: row[2],
+          estado: row[7]
+        });
+      }
+    }
+    
+    return unidades;
+    
+  } catch(e) {
+    Logger.log('Error en obtenerUnidadesDisponibles: ' + e.message);
+    return [];
+  }
+}
+
+/**
+ * Registra una inspección pre-arranque
+ */
+function registrarInspeccion(datos) {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sh = ss.getSheetByName('INSPECCIONES');
+    
+    if(!sh) {
+      return { exito: false, error: 'Hoja INSPECCIONES no encontrada' };
+    }
+    
+    const usuario = Session.getActiveUser().getEmail();
+    
+    sh.appendRow([
+      datos.unidad,
+      new Date(),
+      usuario,
+      datos.resultado,
+      datos.obs || '',
+      datos.km
+    ]);
+    
+    registrarTrazabilidad(usuario, 'INSPECCION', `Inspección ${datos.resultado} para ${datos.unidad}`);
+    
+    return { exito: true, mensaje: 'Inspección registrada' };
+    
+  } catch(e) {
+    Logger.log('Error en registrarInspeccion: ' + e.message);
+    return { exito: false, error: e.message };
+  }
+}
+
+/**
+ * Registra una salida de unidad
+ */
+function registrarSalida(datos) {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sh = ss.getSheetByName('SALIDAS');
+    
+    if(!sh) {
+      return { exito: false, error: 'Hoja SALIDAS no encontrada' };
+    }
+    
+    const usuario = Session.getActiveUser().getEmail();
+    
+    sh.appendRow([
+      datos.unidad,
+      new Date(),
+      usuario,
+      datos.destino,
+      datos.km,
+      datos.obs || '',
+      'SALIDA'
+    ]);
+    
+    // Actualizar estado de la unidad
+    const shFlota = ss.getSheetByName('FLOTA');
+    if(shFlota) {
+      const dataFlota = shFlota.getDataRange().getValues();
+      for(let i = 1; i < dataFlota.length; i++) {
+        if(dataFlota[i][0] === datos.unidad) {
+          shFlota.getRange(i + 1, 8).setValue('EN_RUTA');
+          break;
+        }
+      }
+    }
+    
+    registrarTrazabilidad(usuario, 'SALIDA', `Salida de ${datos.unidad} hacia ${datos.destino}`);
+    
+    return { exito: true, mensaje: 'Salida registrada' };
+    
+  } catch(e) {
+    Logger.log('Error en registrarSalida: ' + e.message);
+    return { exito: false, error: e.message };
+  }
+}
+
+/**
+ * Registra una entrada de unidad
+ */
+function registrarEntrada(datos) {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sh = ss.getSheetByName('SALIDAS');
+    
+    if(!sh) {
+      return { exito: false, error: 'Hoja SALIDAS no encontrada' };
+    }
+    
+    const usuario = Session.getActiveUser().getEmail();
+    
+    sh.appendRow([
+      '', // Unidad (se obtiene de la última salida)
+      new Date(),
+      usuario,
+      'BASE',
+      datos.km,
+      datos.obs || '',
+      'ENTRADA',
+      datos.novedad ? 'SI' : 'NO'
+    ]);
+    
+    registrarTrazabilidad(usuario, 'ENTRADA', `Entrada registrada - KM: ${datos.km}`);
+    
+    return { exito: true, mensaje: 'Entrada registrada' };
+    
+  } catch(e) {
+    Logger.log('Error en registrarEntrada: ' + e.message);
+    return { exito: false, error: e.message };
+  }
+}
+
+/**
+ * Registra una carga de diesel
+ */
+function registrarCargaDiesel(datos) {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sh = ss.getSheetByName('DIESEL');
+    
+    if(!sh) {
+      return { exito: false, error: 'Hoja DIESEL no encontrada' };
+    }
+    
+    const usuario = Session.getActiveUser().getEmail();
+    const precioPorLitro = parseFloat(datos.costo) / parseFloat(datos.litros);
+    
+    sh.appendRow([
+      new Date(),
+      usuario,
+      '', // Unidad (se obtiene de la última asignación)
+      parseFloat(datos.litros),
+      parseFloat(datos.costo),
+      precioPorLitro.toFixed(2),
+      datos.estacion,
+      datos.km,
+      '' // Foto (opcional)
+    ]);
+    
+    registrarTrazabilidad(usuario, 'DIESEL', `Carga de ${datos.litros}L en ${datos.estacion}`);
+    
+    return { exito: true, mensaje: 'Carga de diesel registrada' };
+    
+  } catch(e) {
+    Logger.log('Error en registrarCargaDiesel: ' + e.message);
+    return { exito: false, error: e.message };
+  }
+}
