@@ -1,1227 +1,2543 @@
 /* ==================================================
-   BACKEND - FLEETCONTROL PRO v6.0 (ENHANCED)
+   BACKEND - FLEETCONTROL v8.2 CLEAN (PRODUCTION READY)
+   Nueva DB: 1eqwhEBb8ycd68WD5Qa_RltUJ6WfW_snk6qQysrOH-x0
    ================================================== */
+
+const SPREADSHEET_ID = '1eqwhEBb8ycd68WD5Qa_RltUJ6WfW_snk6qQysrOH-x0';
+const ID_LOGO_AVA = '1VVIXQUCKYDWpl4GkefZY120eP4L3qO_Z'; 
 
 function doGet() {
   return HtmlService.createTemplateFromFile('Index')
       .evaluate()
-      .setTitle('FleetControl Pro 5.1')
-      .addMetaTag('viewport', 'width=device-width, initial-scale=1')
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+      .setTitle('AVA FleetControl')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no');
 }
 
-// ==========================================
-// 1. SETUP BASE DE DATOS
-// ==========================================
-function SETUP_ReconstruirBaseDatos() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const esquemas = {
-    'USUARIOS': ['PIN', 'NOMBRE', 'ROL', 'ESTADO', 'EMAIL'],
-    'UNIDADES': ['ID', 'TIPO', 'MARCA_MODELO', 'PLACAS', 'ESTADO', 'ODOMETRO', 'COMBUSTIBLE_ACTUAL', 'FOTO_URL'],
-    'VIAJES': ['ID_VIAJE', 'FECHA_SALIDA', 'UNIDAD_ID', 'CHOFER_PIN', 'ODOMETRO_SALIDA', 'GAS_SALIDA', 'TIPO_USO', 'MOTIVO', 'CHECKLIST_JSON', 'FECHA_ENTRADA', 'ODOMETRO_ENTRADA', 'GAS_ENTRADA', 'FIRMA_BASE64', 'ESTADO_VIAJE', 'TIEMPO_TOTAL'],
-    'ORDENES_TRABAJO': ['FOLIO', 'FECHA_CREACION', 'UNIDAD_ID', 'TIPO_MTTO', 'PRIORIDAD', 'DESCRIPCION', 'ESTADO', 'DIAGNOSTICO', 'PIEZAS_JSON', 'COSTO_TOTAL', 'FECHA_CIERRE', 'TECNICO'],
-    'SOLICITUDES_COMPRA': ['ID_SOL', 'FOLIO_OT', 'FECHA', 'SOLICITANTE', 'DESCRIPCION', 'MONTO', 'ESTADO', 'AUTORIZADO_POR'],
-    'COMBUSTIBLE': ['ID_CARGA', 'FECHA', 'UNIDAD_ID', 'USUARIO_PIN', 'LITROS', 'PRECIO', 'COSTO_TOTAL', 'ODOMETRO', 'FOTO_TICKET'],
-    'CONFIG': ['CLAVE', 'VALOR']
+// ============================================================
+// 🚀 SETUP INICIAL - EJECUTAR UNA SOLA VEZ DESDE EL EDITOR
+// ============================================================
+
+/**
+ * FUNCIÓN PRINCIPAL DE SETUP
+ * Crea toda la estructura de hojas y carpetas en Drive
+ * EJECUTAR UNA SOLA VEZ desde el Editor de Apps Script
+ */
+function SETUP_SISTEMA_COMPLETO() {
+  Logger.log('========================================');
+  Logger.log('🚀 INICIANDO SETUP DEL SISTEMA AVA FLEETCONTROL');
+  Logger.log('========================================');
+  
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  
+  // 1. CREAR TODAS LAS HOJAS CON SUS ESTRUCTURAS
+  const estructuras = {
+    'USUARIOS': ['PIN', 'NOMBRE', 'ROL', 'ACTIVO', 'EMAIL', 'TELEFONO'],
+    'UNIDADES': ['ID', 'MODELO', 'PLACAS', 'ESTADO', 'ODOMETRO', 'MARCA', 'AÑO', 'COLOR', 'NO_SERIE', 'NO_MOTOR', 'TARJETA_VIG', 'SEGURO_VIG', 'ASEGURADORA', 'POLIZA', 'VERIFICACION_VIG', 'FOTOS', 'PERMISOS', 'DOCUMENTOS', 'ALIAS', 'OPERADOR_ASIGNADO'],
+    'VIAJES': ['ID', 'FECHA', 'UNIDAD', 'CHOFER_PIN', 'KM_SALIDA', 'DESTINO', 'HORA_SALIDA', 'KM_LLEGADA', 'HORA_LLEGADA', 'FALLA', 'DESC_FALLA', 'ESTADO'],
+    'DIESEL': ['ID', 'FECHA', 'UNIDAD', 'CHOFER_PIN', 'LITROS', 'COSTO', 'KM', 'FOTO_TICKET'],
+    'INSPECCIONES': ['ID', 'FECHA', 'HORA', 'CHOFER_PIN', 'UNIDAD', 'ITEMS_OK', 'ITEMS_FAIL', 'OBSERVACIONES', 'RESULTADO', 'PDF_URL'],
+    'ORDENES_TRABAJO': ['FOLIO', 'FECHA', 'UNIDAD', 'ACTIVIDAD', 'TIPO', 'ESTADO', 'TECNICO', 'FECHA_PROG', 'INICIO_REAL', 'FIN_REAL', 'DIAGNOSTICO', 'COSTO', 'HORAS', 'PDF_URL'],
+    'SOLICITUDES': ['ID', 'FOLIO', 'UNIDAD', 'TIPO', 'DESCRIPCION', 'SOLICITANTE', 'FECHA', 'ESTADO', 'MOTIVO_RECHAZO', 'FECHA_CIERRE', 'FECHA_ENTREGA', 'TIEMPO_TOTAL'],
+    'TRAZABILIDAD': ['ID', 'FECHA', 'UNIDAD', 'FOLIO_REF', 'TIPO_EVENTO', 'DESCRIPCION', 'USUARIO'],
+    'KARDEX': ['ID', 'FECHA', 'UNIDAD', 'FOLIO_REF', 'TIPO', 'DESCRIPCION', 'COSTO', 'KM']
   };
-
-  for (const [nombre, headers] of Object.entries(esquemas)) {
+  
+  Logger.log('📊 Creando hojas...');
+  Object.keys(estructuras).forEach(nombre => {
     let sheet = ss.getSheetByName(nombre);
-    if (!sheet) {
+    if(!sheet) {
       sheet = ss.insertSheet(nombre);
-      sheet.appendRow(headers);
-      sheet.getRange(1, 1, 1, headers.length).setBackground('#0f172a').setFontColor('white').setFontWeight('bold');
+      Logger.log(`  ✅ Hoja creada: ${nombre}`);
+    }
+    
+    const headers = estructuras[nombre];
+    const data = sheet.getDataRange().getValues();
+    if(data.length === 0 || data[0][0] === '') {
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sheet.getRange(1, 1, 1, headers.length)
+           .setBackground('#1a1a2e')
+           .setFontColor('#ffffff')
+           .setFontWeight('bold')
+           .setHorizontalAlignment('center');
       sheet.setFrozenRows(1);
+      Logger.log(`    📋 ${headers.length} columnas configuradas`);
     }
-  }
-  
-  // Semilla Usuarios
-  const uSheet = ss.getSheetByName('USUARIOS');
-  if(uSheet.getLastRow() === 1) {
-    uSheet.appendRow(['1111', 'Super Admin', 'SUPER_ADMIN', 'ACTIVO', 'admin@fleet.com']);
-    uSheet.appendRow(['3333', 'Jefe Taller', 'TALLER', 'ACTIVO', 'taller@fleet.com']);
-    uSheet.appendRow(['4444', 'Juan Chofer', 'CHOFER', 'ACTIVO', 'juan@fleet.com']);
-  }
-  
-  // Semilla Unidades
-  const unitSheet = ss.getSheetByName('UNIDADES');
-  if(unitSheet.getLastRow() === 1) {
-    unitSheet.appendRow(['L200-01', 'UTILITARIA', 'Mitsubishi L200', 'BC-123', 'DISPONIBLE', 45000, 100, '']);
-    unitSheet.appendRow(['F450-01', 'RECOLECCION', 'Ford F-450', 'REC-01', 'DISPONIBLE', 150000, 100, '']);
-    unitSheet.appendRow(['CAT-01', 'PESADO', 'Retroexcavadora', 'SIN-PLACA', 'DISPONIBLE', 2500, 100, '']);
-  }
-}
-
-// ==========================================
-// 2. API ENDPOINTS
-// ==========================================
-
-function apiLogin(pin) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('USUARIOS');
-  if(!sheet) return { exito: false, error: 'DB no inicializada' };
-  
-  const data = sheet.getDataRange().getValues();
-  for(let i=1; i<data.length; i++) {
-    if(String(data[i][0]) == String(pin) && data[i][3] === 'ACTIVO') {
-      return { exito: true, user: { pin: data[i][0], nombre: data[i][1], rol: data[i][2] } };
-    }
-  }
-  return { exito: false, error: 'PIN incorrecto' };
-}
-
-function apiGetDashboardData() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const unidades = ss.getSheetByName('UNIDADES').getDataRange().getValues().slice(1);
-  const ots = ss.getSheetByName('ORDENES_TRABAJO').getDataRange().getValues().slice(1);
-  const solicitudes = ss.getSheetByName('SOLICITUDES_COMPRA').getDataRange().getValues().slice(1);
-
-  let kpis = { disponible: 0, ruta: 0, taller: 0, total: unidades.length, otAbiertas: 0, solPendientes: 0 };
-  let listaUnidades = [];
-
-  unidades.forEach(u => {
-    const estado = u[4] || 'DISPONIBLE';
-    if(estado === 'DISPONIBLE') kpis.disponible++;
-    else if(estado === 'EN_RUTA') kpis.ruta++;
-    else kpis.taller++;
-
-    listaUnidades.push({
-      id: u[0], tipo: u[1], modelo: u[2], placas: u[3],
-      estado: estado, odo: u[5], gas: u[6]
-    });
   });
-
-  kpis.otAbiertas = ots.filter(o => o[6] !== 'CERRADA').length;
-  kpis.solPendientes = solicitudes.filter(s => s[6] === 'PENDIENTE').length;
-
-  return { kpis, flota: listaUnidades, recentOts: ots.slice(-5) };
+  
+  // 2. CREAR ESTRUCTURA DE CARPETAS EN DRIVE
+  Logger.log('📁 Creando carpetas en Google Drive...');
+  crearEstructuraCarpetas();
+  
+  // 3. CREAR USUARIO ADMIN POR DEFECTO
+  Logger.log('👤 Creando usuario ADMIN...');
+  const sUsuarios = ss.getSheetByName('USUARIOS');
+  const dataUsuarios = sUsuarios.getDataRange().getValues();
+  if(dataUsuarios.length <= 1) {
+    sUsuarios.appendRow(['1234', 'ADMIN', 'ADMIN', 'ACTIVO', 'admin@ava.com', '']);
+    Logger.log('  ✅ Usuario ADMIN creado (PIN: 1234)');
+  } else {
+    Logger.log('  ℹ️  Usuario ADMIN ya existe');
+  }
+  
+  Logger.log('========================================');
+  Logger.log('🎉 SETUP COMPLETADO EXITOSAMENTE');
+  Logger.log('========================================');
+  Logger.log('📊 Hojas creadas: ' + Object.keys(estructuras).length);
+  Logger.log('📁 Carpetas Drive organizadas');
+  Logger.log('👤 Usuario ADMIN: PIN 1234');
+  Logger.log('🔗 Spreadsheet ID: ' + SPREADSHEET_ID);
+  Logger.log('========================================');
+  Logger.log('✅ El sistema está listo para usar');
+  Logger.log('🌐 Despliega la aplicación web y accede con PIN: 1234');
+  Logger.log('========================================');
 }
 
-function apiGetUnitDetails(unidadId) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+/**
+ * Crea estructura de carpetas en Google Drive para organizar archivos
+ */
+function crearEstructuraCarpetas() {
+  const rootFolder = DriveApp.getRootFolder();
   
-  // 1. Get Unit Info
-  const uSheet = ss.getSheetByName('UNIDADES');
-  const uData = uSheet.getDataRange().getValues();
-  let unit = null;
-  for(let i=1; i<uData.length; i++) {
-    if(String(uData[i][0]) === String(unidadId)) {
-      unit = { id: uData[i][0], tipo: uData[i][1], modelo: uData[i][2], placas: uData[i][3], estado: uData[i][4], odo: uData[i][5], gas: uData[i][6], foto: uData[i][7] };
+  // Carpeta principal
+  let carpetaPrincipal = buscarOCrearCarpeta('AVA_FleetControl', rootFolder);
+  Logger.log('  📂 Carpeta principal: AVA_FleetControl');
+  
+  // Subcarpetas organizadas
+  buscarOCrearCarpeta('Reportes_BI', carpetaPrincipal);
+  buscarOCrearCarpeta('Inspecciones_PDF', carpetaPrincipal);
+  buscarOCrearCarpeta('Ordenes_Trabajo_PDF', carpetaPrincipal);
+  buscarOCrearCarpeta('Documentos_Unidades', carpetaPrincipal);
+  
+  Logger.log('  ├─ Reportes_BI/');
+  Logger.log('  ├─ Inspecciones_PDF/');
+  Logger.log('  ├─ Ordenes_Trabajo_PDF/');
+  Logger.log('  └─ Documentos_Unidades/');
+}
+
+function buscarOCrearCarpeta(nombre, parentFolder) {
+  const folders = parentFolder.getFoldersByName(nombre);
+  if(folders.hasNext()) {
+    return folders.next();
+  } else {
+    return parentFolder.createFolder(nombre);
+  }
+}
+
+// ============================================================
+// FUNCIONES UTILITARIAS - EJECUTAR DESDE EL EDITOR
+// ============================================================
+
+/**
+ * ðŸ”§ CONFIGURAR HOJA UNIDADES
+ * Ejecutar manualmente desde el Editor de Apps Script.
+ * Crea las columnas necesarias en orden correcto para el expediente de unidades.
+ */
+function CONFIGURAR_HOJA_UNIDADES() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sheet = ss.getSheetByName('UNIDADES');
+  
+  // Si no existe, crearla
+  if(!sheet) {
+    sheet = ss.insertSheet('UNIDADES');
+    Logger.log('âœ… Hoja UNIDADES creada');
+  }
+  
+  // Columnas requeridas en orden
+  const columnasRequeridas = [
+    'ID',              // A - Identificador Ãºnico de unidad
+    'MODELO',          // B - Modelo del vehÃ­culo
+    'PLACAS',          // C - Placas
+    'ESTADO',          // D - DISPONIBLE, EN_VIAJE, MANTENIMIENTO
+    'ODOMETRO',        // E - KilÃ³metros actuales
+    'MARCA',           // F - Marca del vehÃ­culo
+    'AÃ‘O',             // G - AÃ±o del vehÃ­culo
+    'COLOR',           // H - Color
+    'NO_SERIE',        // I - NÃºmero de serie/VIN
+    'NO_MOTOR',        // J - NÃºmero de motor
+    'TARJETA_VIG',     // K - Vigencia tarjeta de circulaciÃ³n
+    'SEGURO_VIG',      // L - Vigencia del seguro
+    'ASEGURADORA',     // M - Nombre de aseguradora
+    'POLIZA',          // N - NÃºmero de pÃ³liza
+    'VERIFICACION_VIG',// O - Vigencia verificaciÃ³n vehicular
+    'FOTOS',           // P - JSON con base64 de fotos (mÃ¡x 3)
+    'PERMISOS',        // Q - JSON con permisos especiales
+    'DOCUMENTOS',      // R - JSON con documentos escaneados
+    'ALIAS',           // S - Alias/apodo opcional de la unidad
+    'OPERADOR_ASIGNADO'// T - Operador/chofer asignado a la unidad
+  ];
+  
+  // Obtener encabezados actuales
+  const data = sheet.getDataRange().getValues();
+  const headersActuales = data[0] || [];
+  
+  // Verificar si ya estÃ¡n configuradas correctamente
+  let necesitaReconfigurar = false;
+  if(headersActuales.length < columnasRequeridas.length) {
+    necesitaReconfigurar = true;
+  } else {
+    for(let i=0; i<columnasRequeridas.length; i++) {
+      if(headersActuales[i] !== columnasRequeridas[i]) {
+        necesitaReconfigurar = true;
+        break;
+      }
+    }
+  }
+  
+  if(!necesitaReconfigurar) {
+    Logger.log('âœ… Hoja UNIDADES ya estÃ¡ configurada correctamente');
+    return;
+  }
+  
+  // Si hay datos, necesitamos reorganizar
+  if(data.length > 1) {
+    Logger.log('âš ï¸ La hoja tiene datos. Agregando columnas faltantes...');
+    
+    // Crear mapa de columnas actuales
+    const mapActual = {};
+    headersActuales.forEach((h, i) => mapActual[h] = i);
+    
+    // Agregar columnas faltantes al final
+    let colNueva = headersActuales.length + 1;
+    columnasRequeridas.forEach(col => {
+      if(mapActual[col] === undefined) {
+        sheet.getRange(1, colNueva).setValue(col);
+        Logger.log(`âž• Columna ${col} agregada en posiciÃ³n ${colNueva}`);
+        colNueva++;
+      }
+    });
+    
+    Logger.log('âœ… Columnas faltantes agregadas. Reordene manualmente si lo desea.');
+  } else {
+    // Hoja vacÃ­a - configurar desde cero
+    sheet.getRange(1, 1, 1, columnasRequeridas.length).setValues([columnasRequeridas]);
+    
+    // Formato de encabezados
+    const headerRange = sheet.getRange(1, 1, 1, columnasRequeridas.length);
+    headerRange.setBackground('#1a1a2e')
+               .setFontColor('#ffffff')
+               .setFontWeight('bold')
+               .setHorizontalAlignment('center');
+    
+    // Congelar primera fila
+    sheet.setFrozenRows(1);
+    
+    // Ajustar anchos
+    sheet.setColumnWidth(1, 100);  // ID
+    sheet.setColumnWidth(2, 120);  // MODELO
+    sheet.setColumnWidth(15, 50);  // FOTOS (contendrÃ¡ JSON largo)
+    sheet.setColumnWidth(16, 50);  // PERMISOS (contendrÃ¡ JSON largo)
+    
+    Logger.log('âœ… Hoja UNIDADES configurada con ' + columnasRequeridas.length + ' columnas');
+  }
+  
+  Logger.log('ðŸ“‹ Columnas: ' + columnasRequeridas.join(', '));
+}
+
+/**
+ * ðŸ—‘ï¸ LIMPIAR HOJAS NO UTILIZADAS
+ * Ejecutar manualmente desde el Editor de Apps Script.
+ * Elimina hojas que no son necesarias para el sistema.
+ */
+function LIMPIAR_HOJAS_NO_UTILIZADAS() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  
+  // Hojas que SÃ deben existir (sistema activo)
+  const hojasRequeridas = [
+    'USUARIOS',          // Usuarios y PINs
+    'UNIDADES',          // Flota de vehÃ­culos
+    'VIAJES',            // Registro de viajes
+    'DIESEL',            // Cargas de combustible
+    'INSPECCIONES',      // Pre-arranque
+    'ORDENES_TRABAJO',   // OTs de taller
+    'SOLICITUDES',       // Solicitudes de materiales
+    'TRAZABILIDAD',      // Log de eventos
+    'KARDEX'             // Historial por unidad
+  ];
+  
+  const todasHojas = ss.getSheets();
+  let eliminadas = [];
+  let conservadas = [];
+  
+  todasHojas.forEach(sheet => {
+    const nombre = sheet.getName();
+    
+    if(hojasRequeridas.includes(nombre)) {
+      conservadas.push(nombre);
+    } else {
+      // Verificar que no sea la Ãºltima hoja
+      if(ss.getSheets().length > 1) {
+        try {
+          ss.deleteSheet(sheet);
+          eliminadas.push(nombre);
+        } catch(e) {
+          Logger.log('âŒ No se pudo eliminar: ' + nombre + ' - ' + e.message);
+        }
+      }
+    }
+  });
+  
+  Logger.log('========================================');
+  Logger.log('ðŸ—‘ï¸ HOJAS ELIMINADAS (' + eliminadas.length + '):');
+  eliminadas.forEach(h => Logger.log('   - ' + h));
+  Logger.log('');
+  Logger.log('âœ… HOJAS CONSERVADAS (' + conservadas.length + '):');
+  conservadas.forEach(h => Logger.log('   - ' + h));
+  Logger.log('========================================');
+  
+  // Crear hojas faltantes
+  hojasRequeridas.forEach(nombre => {
+    if(!ss.getSheetByName(nombre)) {
+      ss.insertSheet(nombre);
+      Logger.log('âž• Hoja creada: ' + nombre);
+    }
+  });
+}
+
+/**
+ * ðŸ“Š CONFIGURAR TODAS LAS HOJAS DEL SISTEMA
+ * Ejecutar manualmente desde el Editor de Apps Script.
+ * Crea y configura la estructura de todas las hojas necesarias.
+ */
+function CONFIGURAR_SISTEMA_COMPLETO() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  
+  const estructuras = {
+    'USUARIOS': ['PIN', 'NOMBRE', 'ROL', 'ACTIVO'],
+    'UNIDADES': ['ID', 'MODELO', 'PLACAS', 'ESTADO', 'ODOMETRO', 'MARCA', 'AÃ‘O', 'COLOR', 'NO_SERIE', 'NO_MOTOR', 'TARJETA_VIG', 'SEGURO_VIG', 'ASEGURADORA', 'POLIZA', 'FOTOS', 'PERMISOS'],
+    'VIAJES': ['FECHA', 'UNIDAD', 'CHOFER_PIN', 'KM_SALIDA', 'DESTINO', 'HORA_SALIDA', 'KM_LLEGADA', 'HORA_LLEGADA', 'FALLA', 'DESC_FALLA', 'DISTANCIA', 'ESTADO'],
+    'DIESEL': ['FECHA', 'UNIDAD', 'LITROS', 'KM', 'COSTO', 'FOTO_TICKET', 'CHOFER_PIN'],
+    'INSPECCIONES': ['FECHA', 'HORA', 'CHOFER_PIN', 'UNIDAD', 'ITEMS_OK', 'ITEMS_FAIL', 'OBSERVACIONES', 'RESULTADO', 'PDF_URL'],
+    'ORDENES_TRABAJO': ['FOLIO', 'FECHA', 'UNIDAD', 'ACTIVIDAD', 'TIPO', 'ESTADO', 'TECNICO', 'FECHA_PROG', 'INICIO_REAL', 'FIN_REAL', 'DIAGNOSTICO', 'COSTO', 'HORAS', 'PDF_URL'],
+    'SOLICITUDES': ['FOLIO', 'OT_REF', 'UNIDAD', 'INSUMOS', 'REFACCIONES', 'ESTADO', 'COSTO', 'FECHA_ENTREGA'],
+    'TRAZABILIDAD': ['FECHA', 'UNIDAD', 'FOLIO_REF', 'TIPO_EVENTO', 'DESCRIPCION', 'USUARIO'],
+    'KARDEX': ['FECHA', 'UNIDAD', 'FOLIO_REF', 'TIPO', 'DESCRIPCION']
+  };
+  
+  Object.keys(estructuras).forEach(nombre => {
+    let sheet = ss.getSheetByName(nombre);
+    if(!sheet) {
+      sheet = ss.insertSheet(nombre);
+      Logger.log('âž• Hoja creada: ' + nombre);
+    }
+    
+    // Verificar si tiene encabezados
+    const data = sheet.getDataRange().getValues();
+    if(data.length === 0 || data[0][0] === '') {
+      const headers = estructuras[nombre];
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      
+      // Formato
+      sheet.getRange(1, 1, 1, headers.length)
+           .setBackground('#1a1a2e')
+           .setFontColor('#ffffff')
+           .setFontWeight('bold');
+      sheet.setFrozenRows(1);
+      
+      Logger.log('âœ… Encabezados configurados en: ' + nombre);
+    }
+  });
+  
+  Logger.log('');
+  Logger.log('ðŸŽ‰ SISTEMA CONFIGURADO EXITOSAMENTE');
+  Logger.log('Hojas activas: ' + Object.keys(estructuras).join(', '));
+}
+
+/**
+ * ðŸ“‹ VER ESTADO DEL SISTEMA
+ * Ejecutar para ver un diagnÃ³stico de las hojas.
+ */
+function VER_ESTADO_SISTEMA() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hojas = ss.getSheets();
+  
+  Logger.log('========================================');
+  Logger.log('ðŸ“Š ESTADO DEL SISTEMA FLEETCONTROL');
+  Logger.log('========================================');
+  Logger.log('Total de hojas: ' + hojas.length);
+  Logger.log('');
+  
+  hojas.forEach(sheet => {
+    const nombre = sheet.getName();
+    const filas = sheet.getLastRow();
+    const columnas = sheet.getLastColumn();
+    Logger.log(`ðŸ“„ ${nombre}: ${filas} filas, ${columnas} columnas`);
+  });
+  
+  Logger.log('========================================');
+}
+
+// --- 1. HELPERS Y UTILIDADES ---
+function getImgBase64(fileId) {
+  try {
+    const file = DriveApp.getFileById(fileId);
+    const blob = file.getBlob();
+    return "data:" + blob.getContentType() + ";base64," + Utilities.base64Encode(blob.getBytes());
+  } catch (e) { return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="; }
+}
+function getAvaLogo() { return getImgBase64(ID_LOGO_AVA); }
+
+function obtenerNombre(pin){
+  const s = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('USUARIOS');
+  if(!s) return 'Usuario';
+  const d = s.getDataRange().getValues();
+  for(let i=1; i<d.length; i++) if(String(d[i][0]) == String(pin)) return d[i][1];
+  return 'Usuario';
+}
+
+function actualizarEstadoUnidad(id, estado){
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const s = ss.getSheetByName('UNIDADES');
+  const d = s.getDataRange().getValues();
+  for(let i=1; i<d.length; i++) if(d[i][0] == id) s.getRange(i+1, 4).setValue(estado);
+}
+
+// --- 2. ACCESO Y USUARIOS ---
+function validarPin(pin) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('USUARIOS');
+  if (!sheet) return { exito: false, error: 'Base de datos no conectada' };
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() == String(pin).trim() && (data[i][3] === 'ACTIVO' || !data[i][3])) {
+      return { exito: true, nombre: data[i][1], rol: data[i][2], pin: data[i][0] };
+    }
+  }
+  return { exito: false };
+}
+
+function obtenerListaChoferes() {
+  const s = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('USUARIOS');
+  if(!s) return [];
+  const d = s.getDataRange().getValues();
+  let lista = [];
+  for(let i=1; i<d.length; i++) if(d[i][2] === 'CHOFER') lista.push({pin: d[i][0], nombre: d[i][1]});
+  return lista;
+}
+
+// --- 3. DATOS MAESTROS (FLOTA) ---
+function obtenerDatosFlota() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sU = ss.getSheetByName('UNIDADES');
+  const sV = ss.getSheetByName('VIAJES');
+  if(!sU) return [];
+  
+  const uData = sU.getDataRange().getValues();
+  const vData = sV ? sV.getDataRange().getValues() : [];
+  const headers = uData[0];
+  
+  // FunciÃ³n para obtener Ã­ndice de columna
+  const getCol = (name) => headers.indexOf(name);
+  
+  let unidades = [];
+  for(let i=1; i<uData.length; i++){
+    // Obtener foto principal (primera del array de fotos)
+    let fotoBase64 = '';
+    try {
+      const fotosCol = getCol('FOTOS');
+      if(fotosCol >= 0 && uData[i][fotosCol]) {
+        const fotosArr = JSON.parse(uData[i][fotosCol]);
+        if(fotosArr && fotosArr.length > 0) {
+          fotoBase64 = fotosArr[0]; // Primera foto
+        }
+      }
+    } catch(e) { fotoBase64 = ''; }
+    
+    // Obtener alias
+    const aliasCol = getCol('ALIAS');
+    const alias = aliasCol >= 0 ? (uData[i][aliasCol] || '') : '';
+    
+    // Obtener operador asignado (de la columna o del viaje activo)
+    const operadorCol = getCol('OPERADOR_ASIGNADO');
+    let operadorAsignado = operadorCol >= 0 ? (uData[i][operadorCol] || '') : '';
+    
+    let u = { 
+      id: uData[i][0], 
+      placas: uData[i][getCol('PLACAS')] || uData[i][2] || '', 
+      modelo: uData[i][getCol('MODELO')] || uData[i][1] || '', 
+      estado: uData[i][getCol('ESTADO')] || uData[i][3] || 'DISPONIBLE', 
+      chofer: operadorAsignado || 'Sin Asignar', 
+      foto: fotoBase64,
+      alias: alias
+    };
+    
+    // Si estÃ¡ en viaje, obtener el chofer del viaje activo
+    if(u.estado === 'EN_VIAJE'){
+      for(let j=vData.length-1; j>0; j--){
+        if(vData[j][1] === u.id && vData[j][11] === 'ABIERTO'){
+          u.chofer = obtenerNombre(vData[j][2]); break;
+        }
+      }
+    }
+    unidades.push(u);
+  }
+  return unidades;
+}
+
+function obtenerDatosFlotaCompleto() { return obtenerDatosFlota(); } // Alias para seguridad
+
+// ============== RADIOGRAFÃA DE UNIDAD ==============
+
+function obtenerExpedienteUnidad(unidadId) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sU = ss.getSheetByName('UNIDADES');
+  if(!sU) return null;
+  
+  const data = sU.getDataRange().getValues();
+  const headers = data[0];
+  
+  for(let i=1; i<data.length; i++) {
+    if(data[i][0] === unidadId) {
+      // Buscar Ã­ndices de columnas (flexibilidad)
+      const getCol = (name) => headers.indexOf(name);
+      const getVal = (name, fallback) => {
+        const idx = getCol(name);
+        return idx >= 0 ? (data[i][idx] || fallback) : fallback;
+      };
+      
+      // Parsear JSON de forma segura
+      const parseJSON = (name, defaultVal) => {
+        try {
+          const idx = getCol(name);
+          if(idx >= 0 && data[i][idx]) {
+            return JSON.parse(data[i][idx]);
+          }
+          return defaultVal;
+        } catch(e) { return defaultVal; }
+      };
+      
+      return {
+        id: data[i][0],
+        modelo: data[i][1] || '',
+        placas: data[i][2] || '',
+        estado: data[i][3] || '',
+        odometro: data[i][4] || 0,
+        marca: getVal('MARCA', data[i][5] || ''),
+        anio: getVal('AÃ‘O', data[i][6] || ''),
+        color: getVal('COLOR', data[i][7] || ''),
+        noSerie: getVal('NO_SERIE', data[i][8] || ''),
+        noMotor: getVal('NO_MOTOR', data[i][9] || ''),
+        tarjetaVig: getVal('TARJETA_VIG', ''),
+        seguroVig: getVal('SEGURO_VIG', ''),
+        aseguradora: getVal('ASEGURADORA', ''),
+        poliza: getVal('POLIZA', ''),
+        verificacionVig: getVal('VERIFICACION_VIG', ''),
+        fotos: parseJSON('FOTOS', []),
+        permisos: parseJSON('PERMISOS', []),
+        documentos: parseJSON('DOCUMENTOS', {}),
+        alias: getVal('ALIAS', ''),
+        operadorAsignado: getVal('OPERADOR_ASIGNADO', '')
+      };
+    }
+  }
+  return null;
+}
+
+function guardarExpedienteUnidad(expediente) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sU = ss.getSheetByName('UNIDADES');
+  if(!sU) return { exito: false, error: 'Hoja UNIDADES no encontrada' };
+  
+  const data = sU.getDataRange().getValues();
+  let headers = data[0] || [];
+  
+  // Columnas requeridas (incluyendo nuevas)
+  const columnas = ['ID','MODELO','PLACAS','ESTADO','ODOMETRO','MARCA','AÃ‘O','COLOR','NO_SERIE','NO_MOTOR','TARJETA_VIG','SEGURO_VIG','ASEGURADORA','POLIZA','VERIFICACION_VIG','FOTOS','PERMISOS','DOCUMENTOS','ALIAS','OPERADOR_ASIGNADO'];
+  
+  // Asegurar columnas existen
+  columnas.forEach((col) => {
+    if(headers.indexOf(col) === -1) {
+      sU.getRange(1, headers.length + 1).setValue(col);
+      headers.push(col);
+    }
+  });
+  
+  // Recargar headers despuÃ©s de agregar columnas
+  headers = sU.getRange(1, 1, 1, sU.getLastColumn()).getValues()[0];
+  
+  const getCol = (name) => headers.indexOf(name) + 1;
+  
+  // Buscar si existe la unidad
+  let filaExistente = -1;
+  for(let i=1; i<data.length; i++) {
+    if(data[i][0] === expediente.id) {
+      filaExistente = i + 1;
       break;
     }
   }
-  if (!unit) return { exito: false, error: 'Unidad no encontrada' };
-
-  // 2. Get Open OTs
-  const ots = ss.getSheetByName('ORDENES_TRABAJO').getDataRange().getValues().slice(1)
-              .filter(r => String(r[2]) === String(unidadId) && r[6] !== 'CERRADA')
-              .map(r => ({ folio: r[0], desc: r[5], fecha: r[1] }));
-
-  // 3. Get Recent Trips (Last 5)
-  const trips = ss.getSheetByName('VIAJES').getDataRange().getValues().slice(1)
-                .filter(r => String(r[2]) === String(unidadId))
-                .sort((a,b) => new Date(b[1]) - new Date(a[1])) // Sort Desc
-                .slice(0, 5)
-                .map(r => ({ salida: r[1], chofer: r[3], motivo: r[7] }));
-
-  // 4. Get Fuel Efficiency (Mock Calculation for now)
-  const fuel = ss.getSheetByName('COMBUSTIBLE').getDataRange().getValues().slice(1)
-               .filter(r => String(r[2]) === String(unidadId));
   
-  // Simple Yield Calc: (Max Odo - Min Odo) / Sum Liters
-  let yieldVal = 0;
-  if (fuel.length > 1) {
-     const liters = fuel.reduce((acc, curr) => acc + (parseFloat(curr[4]) || 0), 0);
-     const maxOdo = Math.max(...fuel.map(r => r[7]));
-     const minOdo = Math.min(...fuel.map(r => r[7]));
-     if(liters > 0) yieldVal = (maxOdo - minOdo) / liters;
+  if(filaExistente > 0) {
+    // ACTUALIZAR unidad existente
+    const row = filaExistente;
+    
+    if(getCol('PLACAS') > 0) sU.getRange(row, getCol('PLACAS')).setValue(expediente.placas);
+    if(getCol('MARCA') > 0) sU.getRange(row, getCol('MARCA')).setValue(expediente.marca);
+    if(getCol('MODELO') > 0) sU.getRange(row, getCol('MODELO')).setValue(expediente.modelo);
+    if(getCol('AÃ‘O') > 0) sU.getRange(row, getCol('AÃ‘O')).setValue(expediente.anio);
+    if(getCol('COLOR') > 0) sU.getRange(row, getCol('COLOR')).setValue(expediente.color);
+    if(getCol('ODOMETRO') > 0) sU.getRange(row, getCol('ODOMETRO')).setValue(expediente.odometro);
+    if(getCol('NO_SERIE') > 0) sU.getRange(row, getCol('NO_SERIE')).setValue(expediente.noSerie);
+    if(getCol('NO_MOTOR') > 0) sU.getRange(row, getCol('NO_MOTOR')).setValue(expediente.noMotor);
+    if(getCol('TARJETA_VIG') > 0) sU.getRange(row, getCol('TARJETA_VIG')).setValue(expediente.tarjetaVig);
+    if(getCol('SEGURO_VIG') > 0) sU.getRange(row, getCol('SEGURO_VIG')).setValue(expediente.seguroVig);
+    if(getCol('ASEGURADORA') > 0) sU.getRange(row, getCol('ASEGURADORA')).setValue(expediente.aseguradora);
+    if(getCol('POLIZA') > 0) sU.getRange(row, getCol('POLIZA')).setValue(expediente.poliza);
+    if(getCol('VERIFICACION_VIG') > 0) sU.getRange(row, getCol('VERIFICACION_VIG')).setValue(expediente.verificacionVig || '');
+    if(getCol('FOTOS') > 0) sU.getRange(row, getCol('FOTOS')).setValue(JSON.stringify(expediente.fotos || []));
+    if(getCol('PERMISOS') > 0) sU.getRange(row, getCol('PERMISOS')).setValue(JSON.stringify(expediente.permisos || []));
+    if(getCol('DOCUMENTOS') > 0) sU.getRange(row, getCol('DOCUMENTOS')).setValue(JSON.stringify(expediente.documentos || {}));
+    if(getCol('ALIAS') > 0) sU.getRange(row, getCol('ALIAS')).setValue(expediente.alias || '');
+    if(getCol('OPERADOR_ASIGNADO') > 0) sU.getRange(row, getCol('OPERADOR_ASIGNADO')).setValue(expediente.operadorAsignado || '');
+    
+    return { exito: true, mensaje: 'Unidad actualizada' };
+  } else {
+    // CREAR nueva unidad
+    if(!expediente.id || expediente.id.trim() === '') {
+      return { exito: false, error: 'ID de unidad requerido' };
+    }
+    
+    // Verificar que no exista ya
+    for(let i=1; i<data.length; i++) {
+      if(data[i][0] === expediente.id) {
+        return { exito: false, error: 'Ya existe una unidad con ese ID' };
+      }
+    }
+    
+    // Crear fila nueva
+    const nuevaFila = [];
+    columnas.forEach(col => {
+      switch(col) {
+        case 'ID': nuevaFila.push(expediente.id); break;
+        case 'MODELO': nuevaFila.push(expediente.modelo || ''); break;
+        case 'PLACAS': nuevaFila.push(expediente.placas || ''); break;
+        case 'ESTADO': nuevaFila.push('DISPONIBLE'); break;
+        case 'ODOMETRO': nuevaFila.push(expediente.odometro || 0); break;
+        case 'MARCA': nuevaFila.push(expediente.marca || ''); break;
+        case 'AÃ‘O': nuevaFila.push(expediente.anio || ''); break;
+        case 'COLOR': nuevaFila.push(expediente.color || ''); break;
+        case 'NO_SERIE': nuevaFila.push(expediente.noSerie || ''); break;
+        case 'NO_MOTOR': nuevaFila.push(expediente.noMotor || ''); break;
+        case 'TARJETA_VIG': nuevaFila.push(expediente.tarjetaVig || ''); break;
+        case 'SEGURO_VIG': nuevaFila.push(expediente.seguroVig || ''); break;
+        case 'ASEGURADORA': nuevaFila.push(expediente.aseguradora || ''); break;
+        case 'POLIZA': nuevaFila.push(expediente.poliza || ''); break;
+        case 'VERIFICACION_VIG': nuevaFila.push(expediente.verificacionVig || ''); break;
+        case 'FOTOS': nuevaFila.push(JSON.stringify(expediente.fotos || [])); break;
+        case 'PERMISOS': nuevaFila.push(JSON.stringify(expediente.permisos || [])); break;
+        case 'DOCUMENTOS': nuevaFila.push(JSON.stringify(expediente.documentos || {})); break;
+        case 'ALIAS': nuevaFila.push(expediente.alias || ''); break;
+        case 'OPERADOR_ASIGNADO': nuevaFila.push(expediente.operadorAsignado || ''); break;
+        default: nuevaFila.push('');
+      }
+    });
+    
+    sU.appendRow(nuevaFila);
+    return { exito: true, mensaje: 'Nueva unidad creada', id: expediente.id };
   }
-
-  return { exito: true, unit, ots, trips, fuelCount: fuel.length, yield: yieldVal.toFixed(2) };
 }
 
-function apiUpdateOTProgress(payload) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('ORDENES_TRABAJO');
-  const data = sheet.getDataRange().getValues();
+function obtenerHistorialOTsUnidad(unidadId) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const s = ss.getSheetByName('ORDENES_TRABAJO');
+  if(!s) return [];
+  
+  const data = s.getDataRange().getValues();
+  let lista = [];
+  
+  for(let i=data.length-1; i>0 && lista.length<50; i--) {
+    if(data[i][2] === unidadId) {
+      lista.push({
+        folio: data[i][0],
+        fecha: data[i][1] ? new Date(data[i][1]).toLocaleDateString() : '',
+        tipo: data[i][4],
+        actividad: data[i][3],
+        diagnostico: data[i][10] || '',
+        estado: data[i][5],
+        pdfUrl: data[i][13] || ''
+      });
+    }
+  }
+  
+  return lista;
+}
+
+function obtenerCostosUnidad(unidadId) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const s = ss.getSheetByName('ORDENES_TRABAJO');
+  if(!s) return { totalCosto: 0, totalOTs: 0, totalHoras: 0, lista: [] };
+  
+  const data = s.getDataRange().getValues();
+  let totalCosto = 0, totalOTs = 0, totalHoras = 0, lista = [];
+  
+  for(let i=data.length-1; i>0; i--) {
+    if(data[i][2] === unidadId && data[i][5] === 'CERRADA') {
+      const costo = Number(data[i][11]) || 0;
+      const horas = Number(data[i][12]) || 0;
+      
+      totalCosto += costo;
+      totalHoras += horas;
+      totalOTs++;
+      
+      if(lista.length < 30) {
+        lista.push({
+          folio: data[i][0],
+          fecha: data[i][1] ? new Date(data[i][1]).toLocaleDateString() : '',
+          tipo: data[i][4],
+          actividad: data[i][3],
+          horas: horas,
+          costo: costo
+        });
+      }
+    }
+  }
+  
+  return { totalCosto, totalOTs, totalHoras, lista };
+}
+
+function obtenerPreventivosUnidad(unidadId) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const s = ss.getSheetByName('ORDENES_TRABAJO');
+  if(!s) return { proximo: null, historial: [] };
+  
+  const data = s.getDataRange().getValues();
+  let proximo = null, historial = [];
   
   for(let i=1; i<data.length; i++) {
-    if(String(data[i][0]) === String(payload.folio)) {
-      // Append to Diagnostic/Bitacora column (Index 7)
-      const currentLog = data[i][7] || '';
-      const newEntry = `[${new Date().toLocaleString()}] ${payload.avance}\n`;
-      sheet.getRange(i+1, 8).setValue(currentLog + newEntry);
+    if(data[i][2] === unidadId && data[i][4] === 'PREVENTIVO') {
+      const ot = {
+        folio: data[i][0],
+        fecha: data[i][7] ? new Date(data[i][7]).toLocaleDateString() : new Date(data[i][1]).toLocaleDateString(),
+        actividad: data[i][3],
+        estado: data[i][5],
+        tecnico: data[i][6]
+      };
       
-      if(payload.cerrar) {
-        sheet.getRange(i+1, 7).setValue('CERRADA');
-        sheet.getRange(i+1, 10).setValue(payload.costo || 0);
-        sheet.getRange(i+1, 11).setValue(new Date());
-        actualizarEstadoUnidad(data[i][2], 'DISPONIBLE');
+      if(data[i][5] === 'PROGRAMADA' || data[i][5] === 'ESPERA_MAT') {
+        if(!proximo) proximo = ot;
+      } else if(data[i][5] === 'CERRADA') {
+        if(historial.length < 20) historial.push(ot);
       }
+    }
+  }
+  
+  // Ordenar historial por fecha descendente
+  historial.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+  
+  return { proximo, historial };
+}
+
+// ============== CAPTURA DE HISTORIAL (EXPEDIENTES EN PAPEL) ==============
+function guardarOTHistorica(ot) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let s = ss.getSheetByName('ORDENES_TRABAJO');
+  
+  if(!s) {
+    s = ss.insertSheet('ORDENES_TRABAJO');
+    s.getRange(1, 1, 1, 14).setValues([['FOLIO', 'FECHA', 'UNIDAD', 'ACTIVIDAD', 'TIPO', 'ESTADO', 'TECNICO', 'FECHA_PROG', 'INICIO_REAL', 'FIN_REAL', 'DIAGNOSTICO', 'COSTO', 'HORAS', 'PDF_URL']]);
+  }
+  
+  // Verificar si el folio ya existe
+  const data = s.getDataRange().getValues();
+  for(let i=1; i<data.length; i++) {
+    if(data[i][0] === ot.folio) {
+      // Actualizar OT existente (ediciÃ³n)
+      const row = i + 1;
+      s.getRange(row, 2).setValue(ot.fecha);
+      s.getRange(row, 4).setValue(ot.actividad);
+      s.getRange(row, 5).setValue(ot.tipo);
+      s.getRange(row, 7).setValue(ot.tecnico);
+      s.getRange(row, 11).setValue(ot.diagnostico);
+      s.getRange(row, 12).setValue(ot.costo);
+      s.getRange(row, 13).setValue(ot.horas);
+      return { exito: true, mensaje: 'OT actualizada', folio: ot.folio };
+    }
+  }
+  
+  // OT Nueva - crear fila
+  const nuevaFila = [
+    ot.folio,                    // FOLIO
+    ot.fecha,                    // FECHA
+    ot.unidad,                   // UNIDAD
+    ot.actividad,                // ACTIVIDAD
+    ot.tipo,                     // TIPO
+    'CERRADA',                   // ESTADO (histÃ³rica = cerrada)
+    ot.tecnico || 'HISTÃ“RICO',   // TECNICO
+    ot.fecha,                    // FECHA_PROG
+    ot.fecha,                    // INICIO_REAL
+    ot.fecha,                    // FIN_REAL
+    ot.diagnostico,              // DIAGNOSTICO
+    ot.costo || 0,               // COSTO
+    ot.horas || 0,               // HORAS
+    ''                           // PDF_URL
+  ];
+  
+  s.appendRow(nuevaFila);
+  return { exito: true, mensaje: 'OT histÃ³rica registrada', folio: ot.folio };
+}
+
+function eliminarOTHistorica(folio) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const s = ss.getSheetByName('ORDENES_TRABAJO');
+  if(!s) return { exito: false, error: 'Hoja no encontrada' };
+  
+  const data = s.getDataRange().getValues();
+  for(let i=1; i<data.length; i++) {
+    if(data[i][0] === folio) {
+      s.deleteRow(i + 1);
+      return { exito: true, mensaje: 'OT eliminada' };
+    }
+  }
+  return { exito: false, error: 'OT no encontrada' };
+}
+
+// --- 4. TALLER: PROGRAMACIÃ“N Y OT ---
+function guardarProgramacion(datos) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  
+  // 1. Crear OT
+  let sOT = ss.getSheetByName('ORDENES_TRABAJO');
+  if(!sOT) { 
+    sOT=ss.insertSheet('ORDENES_TRABAJO'); 
+    sOT.appendRow(['FOLIO','FECHA','UNIDAD','ACTIVIDAD','TIPO','ESTADO','TECNICO','FECHA_PROG','INICIO_REAL','FIN_REAL','DIAGNOSTICO','COSTO','HORAS','PDF_URL']); 
+  }
+  
+  // Generar folio con formato legible: OT-TIPO-YYYYMMDD-XXX
+  const hoy = new Date();
+  const fechaStr = hoy.toISOString().split('T')[0].replace(/-/g,'');
+  const folioOT = `OT-${datos.tipo.substring(0,4)}-${fechaStr}-${Date.now().toString().slice(-4)}`;
+  const estadoInicial = (datos.insumos || datos.refacciones) ? 'ESPERA_MAT' : 'PROGRAMADA';
+  
+  sOT.appendRow([folioOT, hoy, datos.unidad, datos.actividad, datos.tipo, estadoInicial, datos.tecnico, datos.fechaProg, '', '', '', 0, 0, '']);
+  
+  // 2. Crear Solicitud (si aplica)
+  let folioSol = '';
+  if (datos.insumos || datos.refacciones) {
+    let sSol = ss.getSheetByName('SOLICITUDES');
+    if(!sSol) { sSol=ss.insertSheet('SOLICITUDES'); sSol.appendRow(['FOLIO','OT_REF','UNIDAD','INSUMOS','REFACCIONES','ESTADO','COSTO','FECHA_ENTREGA']); }
+    
+    folioSol = 'SOL-' + Date.now();
+    sSol.appendRow([folioSol, folioOT, datos.unidad, datos.insumos, datos.refacciones, 'PENDIENTE', 0, '']);
+    
+    registrarTrazabilidad(datos.unidad, folioOT, 'SOLICITUD_CREADA', `Solicitud ${folioSol} generada por Taller.`, datos.tecnico);
+  }
+
+  // 3. Trazabilidad General
+  registrarTrazabilidad(datos.unidad, folioOT, 'PROGRAMACION', `Mantenimiento ${datos.tipo} agendado para ${datos.fechaProg}.`, datos.tecnico);
+  registrarEventoKardex(datos.unidad, folioOT, datos.tipo, datos.actividad);
+
+  // 4. Bloquear unidad si es para hoy
+  const prog = new Date(datos.fechaProg);
+  if(prog <= hoy) actualizarEstadoUnidad(datos.unidad, 'MANTENIMIENTO');
+
+  return { exito: true, folio: folioOT };
+}
+
+function obtenerAgendaTaller() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const s = ss.getSheetByName('ORDENES_TRABAJO');
+  if(!s) return [];
+  const data = s.getDataRange().getValues();
+  let agenda = [];
+  for(let i=1; i<data.length; i++){
+    if(data[i][5] !== 'CERRADA'){
+      agenda.push({
+        folio: data[i][0],
+        unidad: data[i][2],
+        actividad: data[i][3],
+        fecha: new Date(data[i][7]).toLocaleDateString(),
+        estado: data[i][5]
+      });
+    }
+  }
+  return agenda;
+}
+
+// ============== FUNCIONES ENTERPRISE DE TALLER ==============
+
+function obtenerKPIsTaller() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const s = ss.getSheetByName('ORDENES_TRABAJO');
+  if(!s) return { programadas: 0, esperaMat: 0, enProceso: 0, cerradasHoy: 0 };
+  
+  const data = s.getDataRange().getValues();
+  let programadas = 0, esperaMat = 0, enProceso = 0, cerradasHoy = 0;
+  const hoy = new Date().toDateString();
+  
+  for(let i=1; i<data.length; i++) {
+    const estado = data[i][5];
+    if(estado === 'PROGRAMADA') programadas++;
+    else if(estado === 'ESPERA_MAT') esperaMat++;
+    else if(estado === 'EN_PROCESO') enProceso++;
+    else if(estado === 'CERRADA') {
+      const fechaCierre = data[i][9];
+      if(fechaCierre && new Date(fechaCierre).toDateString() === hoy) cerradasHoy++;
+    }
+  }
+  
+  return { programadas, esperaMat, enProceso, cerradasHoy };
+}
+
+function obtenerDetalleOT(folio) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const s = ss.getSheetByName('ORDENES_TRABAJO');
+  if(!s) return null;
+  
+  const data = s.getDataRange().getValues();
+  for(let i=1; i<data.length; i++) {
+    if(data[i][0] === folio) {
+      return {
+        folio: data[i][0],
+        fecha: new Date(data[i][1]).toLocaleDateString(),
+        unidad: data[i][2],
+        actividad: data[i][3],
+        tipo: data[i][4],
+        estado: data[i][5],
+        tecnico: data[i][6],
+        fechaProg: data[i][7] ? new Date(data[i][7]).toLocaleDateString() : '',
+        inicioReal: data[i][8] ? new Date(data[i][8]).toLocaleDateString() : '',
+        finReal: data[i][9] ? new Date(data[i][9]).toLocaleDateString() : '',
+        diagnostico: data[i][10] || '',
+        costo: data[i][11] || 0,
+        horas: data[i][12] || 0,
+        pdfUrl: data[i][13] || ''
+      };
+    }
+  }
+  return null;
+}
+
+function actualizarEstadoOT(folio, nuevoEstado) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const s = ss.getSheetByName('ORDENES_TRABAJO');
+  if(!s) return { exito: false, error: 'Hoja no encontrada' };
+  
+  const data = s.getDataRange().getValues();
+  for(let i=1; i<data.length; i++) {
+    if(data[i][0] === folio) {
+      s.getRange(i+1, 6).setValue(nuevoEstado); // Estado columna 6
+      
+      // Si inicia trabajo, registrar hora inicio
+      if(nuevoEstado === 'EN_PROCESO' && !data[i][8]) {
+        s.getRange(i+1, 9).setValue(new Date()); // Inicio real columna 9
+      }
+      
+      // Registrar trazabilidad
+      registrarTrazabilidad(data[i][2], folio, 'CAMBIO_ESTADO', `Estado cambiado a ${nuevoEstado}`, 'TALLER');
+      
       return { exito: true };
     }
   }
   return { exito: false, error: 'OT no encontrada' };
 }
 
-function apiGetTallerData() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const data = ss.getSheetByName('ORDENES_TRABAJO').getDataRange().getValues().slice(1);
-  return data.map(r => ({
-    folio: r[0] || '', 
-    fecha: r[1] ? new Date(r[1]).toLocaleDateString() : '-', 
-    unidad: r[2] || '',
-    tipo: r[3] || '', 
-    prioridad: r[4] || 'MEDIA', 
-    desc: r[5] || '', 
-    estado: r[6] || 'ABIERTA',
-    bitacora: r[7] || '' // Added Bitacora
-  }));
-}
-
-function apiRegistrarSalida(payload) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+function cerrarOrdenTrabajo(folio, diagnostico, costo, horas) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const s = ss.getSheetByName('ORDENES_TRABAJO');
+  if(!s) return { exito: false, error: 'Hoja no encontrada' };
   
-  // Validar checklist
-  // Checklist is already JSON stringified in line 133
-  // Validar checklist (Expanded logic if needed)
-  const checklist = payload.checklist || [];
-  const fallaCritica = checklist.some(x => x.estado === 'MALO' && x.critico);
-  
-  // Logic remains robust enough for new checklist structure as long as it has 'estado' and 'critico'
-  // No deep changes needed in this function block, continuing...
- 
-  if (fallaCritica) {
-    actualizarEstadoUnidad(payload.unidadId, 'MANTENIMIENTO');
-    const folio = 'OT-AUTO-' + Date.now();
-    // Create detailed diagnosis from checklist failures
-    const failures = checklist.filter(x => x.estado === 'MALO').map(x => x.item).join(', ');
-    ss.getSheetByName('ORDENES_TRABAJO').appendRow([
-      folio, new Date(), payload.unidadId, 'CORRECTIVO', 'ALTA',
-      'Bloqueo por Falla Crítica: ' + failures, 'ABIERTA', '', '[]', 0, '', 'SISTEMA'
-    ]);
-    return { exito: false, bloqueado: true, msg: 'Unidad bloqueada por falla crítica: ' + failures };
-  }
-
-  const idViaje = 'V-' + Date.now();
-  ss.getSheetByName('VIAJES').appendRow([
-    idViaje, new Date(), payload.unidadId, payload.pin, payload.odo, payload.gas,
-    payload.tipoUso, payload.motivo, JSON.stringify(checklist),
-    '', '', '', '', 'EN_RUTA', ''
-  ]);
-
-  // Actualizar odómetro y combustible en UNIDADES
-  const unitSheet = ss.getSheetByName('UNIDADES');
-  const unitData = unitSheet.getDataRange().getValues();
-  for (let j = 1; j < unitData.length; j++) {
-    if (unitData[j][0] == payload.unidadId) {
-      unitSheet.getRange(j + 1, 6).setValue(payload.odo);
-      unitSheet.getRange(j + 1, 7).setValue(payload.gas);
-      break;
-    }
-  }
-
-  actualizarEstadoUnidad(payload.unidadId, 'EN_RUTA');
-  return { exito: true };
-}
-
-function apiRegistrarEntrada(payload) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('VIAJES');
-  const data = sheet.getDataRange().getValues();
-  let row = -1;
-  
-  for(let i=data.length-1; i>0; i--) {
-    if(data[i][2] == payload.unidadId && data[i][13] == 'EN_RUTA') {
-      row = i + 1;
-      break;
-    }
-  }
-  
-  if (row === -1) return { exito: false, error: 'No hay viaje activo' };
-  
-  const fechaEntrada = new Date();
-  sheet.getRange(row, 10).setValue(fechaEntrada);
-  sheet.getRange(row, 11).setValue(payload.odo);
-  sheet.getRange(row, 12).setValue(payload.gas);
-  sheet.getRange(row, 13).setValue(payload.firma);
-  sheet.getRange(row, 14).setValue('CERRADO');
-
-  // Calcular tiempo total en horas
-  const fechaSalida = data[row - 1][1];
-  const diffHoras = (fechaEntrada.getTime() - fechaSalida.getTime()) / (1000 * 60 * 60);
-  sheet.getRange(row, 15).setValue(diffHoras.toFixed(2) + ' horas');
-
-  // Actualizar odómetro y combustible en UNIDADES
-  const unitSheet = ss.getSheetByName('UNIDADES');
-  const unitData = unitSheet.getDataRange().getValues();
-  for (let j = 1; j < unitData.length; j++) {
-    if (unitData[j][0] == payload.unidadId) {
-      unitSheet.getRange(j + 1, 6).setValue(payload.odo);
-      unitSheet.getRange(j + 1, 7).setValue(payload.gas);
-      break;
-    }
-  }
-
-  actualizarEstadoUnidad(payload.unidadId, 'DISPONIBLE');
-  return { exito: true };
-}
-
-function apiCrearOT(payload) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const folio = 'OT-' + Date.now();
-  ss.getSheetByName('ORDENES_TRABAJO').appendRow([
-    folio, new Date(), payload.unidadId, payload.tipo, payload.prioridad,
-    payload.descripcion, 'ABIERTA', '', '[]', 0, '', payload.tecnico
-  ]);
-  actualizarEstadoUnidad(payload.unidadId, 'MANTENIMIENTO');
-  return { exito: true, folio };
-}
-
-function apiCerrarOT(folio, costo) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('ORDENES_TRABAJO');
-  const data = sheet.getDataRange().getValues();
+  const data = s.getDataRange().getValues();
   for(let i=1; i<data.length; i++) {
-    if(String(data[i][0]) == String(folio)) {
-      sheet.getRange(i+1, 7).setValue('CERRADA');
-      sheet.getRange(i+1, 10).setValue(costo);
-      sheet.getRange(i+1, 11).setValue(new Date());
-      actualizarEstadoUnidad(data[i][2], 'DISPONIBLE');
-      return { exito: true };
+    if(data[i][0] === folio) {
+      const unidad = data[i][2];
+      const ahora = new Date();
+      
+      // Actualizar registro
+      s.getRange(i+1, 6).setValue('CERRADA');           // Estado
+      s.getRange(i+1, 10).setValue(ahora);              // Fin real
+      s.getRange(i+1, 11).setValue(diagnostico);        // DiagnÃ³stico
+      s.getRange(i+1, 12).setValue(Number(costo) || 0); // Costo
+      s.getRange(i+1, 13).setValue(Number(horas) || 0); // Horas
+      
+      // Generar PDF
+      const pdfUrl = generarPDFOrdenTrabajoInterno(folio, {
+        folio: folio,
+        unidad: unidad,
+        actividad: data[i][3],
+        tipo: data[i][4],
+        tecnico: data[i][6],
+        fechaProg: data[i][7],
+        inicioReal: data[i][8],
+        finReal: ahora,
+        diagnostico: diagnostico,
+        costo: costo,
+        horas: horas
+      });
+      
+      // Guardar URL del PDF
+      s.getRange(i+1, 14).setValue(pdfUrl);
+      
+      // Liberar unidad
+      actualizarEstadoUnidad(unidad, 'DISPONIBLE');
+      
+      // Trazabilidad
+      registrarTrazabilidad(unidad, folio, 'OT_CERRADA', `OT cerrada. DiagnÃ³stico: ${diagnostico.substring(0,50)}...`, 'TALLER');
+      
+      return { exito: true, pdfUrl: pdfUrl };
     }
   }
-  return { exito: false };
+  return { exito: false, error: 'OT no encontrada' };
 }
 
-function apiRegistrarCombustible(payload) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const idCarga = 'C-' + Date.now();
-  const costoTotal = payload.litros * payload.precio;
-  ss.getSheetByName('COMBUSTIBLE').appendRow([
-    idCarga, new Date(), payload.unidadId, payload.pin, payload.litros,
-    payload.precio, costoTotal, payload.odo, ''
-  ]);
+function generarPDFOrdenTrabajoInterno(folio, datos) {
+  const logo = getAvaLogo();
+  
+  const html = `<!DOCTYPE html><html><head>${getEstiloPremium()}</head><body>
+    <div class="header">
+      <div class="top">
+        <img src="${logo}" class="logo">
+        <div style="text-align:right">
+          <div class="title">ORDEN DE TRABAJO</div>
+          <div style="font-size:24px; font-weight:bold; color:#3b82f6;">${folio}</div>
+        </div>
+      </div>
+    </div>
+    <div style="padding:30px;">
+      <div class="grid">
+        <div class="card"><div class="val">${datos.unidad}</div><div class="lbl">Unidad</div></div>
+        <div class="card" style="border-color:#10b981"><div class="val" style="color:#10b981">${datos.tipo}</div><div class="lbl">Tipo</div></div>
+        <div class="card"><div class="val">${datos.tecnico || 'N/A'}</div><div class="lbl">TÃ©cnico</div></div>
+      </div>
+      
+      <div class="section">
+        <div class="section-title">ACTIVIDAD PROGRAMADA</div>
+        <p style="font-size:14px;">${datos.actividad}</p>
+      </div>
+      
+      <div class="section">
+        <div class="section-title">DIAGNÃ“STICO Y TRABAJOS REALIZADOS</div>
+        <p style="font-size:14px; white-space:pre-line;">${datos.diagnostico || 'Sin diagnÃ³stico registrado'}</p>
+      </div>
+      
+      <div class="grid">
+        <div class="card" style="border-color:#f59e0b">
+          <div class="val" style="color:#f59e0b">$${Number(datos.costo).toLocaleString()}</div>
+          <div class="lbl">Costo Materiales</div>
+        </div>
+        <div class="card">
+          <div class="val">${datos.horas || 0} hrs</div>
+          <div class="lbl">Tiempo Trabajo</div>
+        </div>
+      </div>
+      
+      <div class="section" style="margin-top:30px;">
+        <div class="section-title">REGISTRO DE TIEMPOS</div>
+        <table style="width:100%; font-size:12px; border-collapse:collapse;">
+          <tr><td style="padding:8px; border-bottom:1px solid #eee;"><strong>Fecha Programada:</strong></td><td style="padding:8px; border-bottom:1px solid #eee;">${datos.fechaProg ? new Date(datos.fechaProg).toLocaleDateString() : 'N/A'}</td></tr>
+          <tr><td style="padding:8px; border-bottom:1px solid #eee;"><strong>Inicio Real:</strong></td><td style="padding:8px; border-bottom:1px solid #eee;">${datos.inicioReal ? new Date(datos.inicioReal).toLocaleString() : 'N/A'}</td></tr>
+          <tr><td style="padding:8px;"><strong>Fin Real:</strong></td><td style="padding:8px;">${datos.finReal ? new Date(datos.finReal).toLocaleString() : 'N/A'}</td></tr>
+        </table>
+      </div>
+      
+      <div style="margin-top:50px; display:flex; justify-content:space-between;">
+        <div style="text-align:center; width:45%;">
+          <div style="border-top:1px solid #333; padding-top:10px;">TÃ©cnico Responsable</div>
+        </div>
+        <div style="text-align:center; width:45%;">
+          <div style="border-top:1px solid #333; padding-top:10px;">Jefe de Taller</div>
+        </div>
+      </div>
+    </div>
+    <div class="footer">AVA FleetControl - Generado: ${new Date().toLocaleString()}</div>
+  </body></html>`;
+  
+  return crearPDF(html, `OT_${folio}.pdf`);
+}
 
-  // Actualizar odómetro y combustible en UNIDADES (asumir lleno)
-  const unitSheet = ss.getSheetByName('UNIDADES');
-  const unitData = unitSheet.getDataRange().getValues();
-  for (let j = 1; j < unitData.length; j++) {
-    if (unitData[j][0] == payload.unidadId) {
-      unitSheet.getRange(j + 1, 6).setValue(payload.odo);
-      unitSheet.getRange(j + 1, 7).setValue(100); // Asumir tanque lleno
-      break;
+function generarPDFOrdenTrabajo(folio) {
+  const ot = obtenerDetalleOT(folio);
+  if(!ot) return { exito: false, error: 'OT no encontrada' };
+  
+  const url = generarPDFOrdenTrabajoInterno(folio, ot);
+  return { exito: true, url: url };
+}
+
+function obtenerHistorialOTsCerradas() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const s = ss.getSheetByName('ORDENES_TRABAJO');
+  if(!s) return [];
+  
+  const data = s.getDataRange().getValues();
+  let lista = [];
+  
+  for(let i=data.length-1; i>0 && lista.length<30; i--) {
+    if(data[i][5] === 'CERRADA') {
+      lista.push({
+        folio: data[i][0],
+        unidad: data[i][2],
+        actividad: data[i][3],
+        estado: data[i][5],
+        fechaCierre: data[i][9] ? new Date(data[i][9]).toLocaleDateString() : 'N/A',
+        pdfUrl: data[i][13] || ''
+      });
     }
   }
-
-  return { exito: true };
-}
-
-function apiGetCombustibleData(payload) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let data = ss.getSheetByName('COMBUSTIBLE').getDataRange().getValues().slice(1);
-  data = applyFilters(data, payload, 1); // fecha en índice 1
-  return data.map(r => ({
-    id: r[0], fecha: new Date(r[1]).toLocaleDateString(),
-    unidad: r[2], litros: r[4], costo: r[6], odo: r[7]
-  }));
-}
-
-function apiGetViajesReport(payload) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let data = ss.getSheetByName('VIAJES').getDataRange().getValues().slice(1);
-  data = applyFilters(data, payload, 1); // fecha_salida en índice 1
-  return data.map(r => ({
-    id: r[0],
-    salida: r[1] ? new Date(r[1]).toLocaleString() : '-',
-    unidad: r[2],
-    chofer: r[3],
-    odoSalida: r[4],
-    gasSalida: r[5],
-    tipo: r[6],
-    motivo: r[7],
-    entrada: r[9] ? new Date(r[9]).toLocaleString() : '-',
-    odoEntrada: r[10],
-    gasEntrada: r[11],
-    tiempo: r[14],
-    estado: r[13]
-  }));
-}
-
-function apiGetOTReport(payload) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let data = ss.getSheetByName('ORDENES_TRABAJO').getDataRange().getValues().slice(1);
-  data = applyFilters(data, payload, 1); // fecha_creacion en índice 1
-  return data.map(r => ({
-    folio: r[0],
-    creacion: r[1] ? new Date(r[1]).toLocaleString() : '-',
-    unidad: r[2],
-    tipo: r[3],
-    prioridad: r[4],
-    desc: r[5],
-    estado: r[6],
-    costo: r[9],
-    cierre: r[10] ? new Date(r[10]).toLocaleString() : '-',
-    tecnico: r[11]
-  }));
-}
-
-function apiExportReport(tipo, payload) {
-  const tempSs = SpreadsheetApp.create('Reporte Temporal ' + tipo);
-  const sheet = tempSs.getActiveSheet();
   
-  let headers, rowMapper, data;
-
-  if (tipo === 'viajes') {
-    headers = ['ID_VIAJE', 'FECHA_SALIDA', 'UNIDAD_ID', 'CHOFER_PIN', 'ODOMETRO_SALIDA', 'GAS_SALIDA', 'TIPO_USO', 'MOTIVO', 'FECHA_ENTRADA', 'ODOMETRO_ENTRADA', 'GAS_ENTRADA', 'TIEMPO_TOTAL'];
-    data = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('VIAJES').getDataRange().getValues().slice(1);
-    data = applyFilters(data, payload, 1);
-    rowMapper = r => [r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[9], r[10], r[11], r[14]];
-  } else if (tipo === 'ot') {
-    headers = ['FOLIO', 'FECHA_CREACION', 'UNIDAD_ID', 'TIPO_MTTO', 'PRIORIDAD', 'DESCRIPCION', 'ESTADO', 'COSTO_TOTAL', 'FECHA_CIERRE', 'TECNICO'];
-    data = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('ORDENES_TRABAJO').getDataRange().getValues().slice(1);
-    data = applyFilters(data, payload, 1);
-    rowMapper = r => [r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[9], r[10], r[11]];
-  } else if (tipo === 'combustible') {
-    headers = ['ID_CARGA', 'FECHA', 'UNIDAD_ID', 'LITROS', 'PRECIO', 'COSTO_TOTAL', 'ODOMETRO'];
-    data = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('COMBUSTIBLE').getDataRange().getValues().slice(1);
-    data = applyFilters(data, payload, 1);
-    rowMapper = r => [r[0], r[1], r[2], r[4], r[5], r[6], r[7]];
-  }
-
-  sheet.appendRow(headers);
-  data.forEach(r => sheet.appendRow(rowMapper(r)));
-
-  const pdfBlob = tempSs.getAs('application/pdf').setName('Reporte_' + tipo + '.pdf');
-  const folder = DriveApp.getFolderById('your_folder_id_if_needed_or_root'); // Cambia si es necesario
-  const pdfFile = DriveApp.createFile(pdfBlob);
-  pdfFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-
-  // Eliminar spreadsheet temporal
-  DriveApp.getFileById(tempSs.getId()).setTrashed(true);
-
-  return { exito: true, url: pdfFile.getDownloadUrl() };
+  return lista;
 }
 
-// --- HELPER ---
-function actualizarEstadoUnidad(id, estado) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('UNIDADES');
-  const data = sheet.getDataRange().getValues();
-  for(let i=1; i<data.length; i++) {
-    if(String(data[i][0]) == String(id)) {
-      sheet.getRange(i+1, 5).setValue(estado);
-      break;
+// --- 5. ADMIN: GESTIÃ“N DE SOLICITUDES ---
+function obtenerSolicitudesPendientes() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const s = ss.getSheetByName('SOLICITUDES');
+  if(!s) return [];
+  const data = s.getDataRange().getValues();
+  let lista = [];
+  for(let i=1; i<data.length; i++){
+    if(data[i][5] !== 'ENTREGADA'){ // Pendientes y Aprobadas
+      lista.push({
+        folio: data[i][0],
+        ot: data[i][1],
+        unidad: data[i][2],
+        insumos: data[i][3],
+        refacciones: data[i][4],
+        estado: data[i][5]
+      });
     }
   }
+  return lista;
 }
 
-function applyFilters(data, payload, fechaIndex) {
-  if (!payload) return data;
-  const { desde, hasta, unidadId } = payload;
+function gestionarSolicitud(folioSol, accion, costo) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const s = ss.getSheetByName('SOLICITUDES');
+  const d = s.getDataRange().getValues();
   
-  return data.filter(row => {
-    let match = true;
-    
-    if (desde) {
-      const fechaRow = row[fechaIndex] ? new Date(row[fechaIndex]) : null;
-      if (fechaRow && fechaRow < new Date(desde)) match = false;
-    }
-    
-    if (hasta) {
-      const fechaRow = row[fechaIndex] ? new Date(row[fechaIndex]) : null;
-      if (fechaRow && fechaRow > new Date(hasta)) match = false;
-    }
-    
-    if (unidadId && row[2] !== unidadId) match = false;
-    
-    return match;
-  });
-}
-
-// ==================================================
-// FASE 1: SEGURIDAD Y AUTENTICACIÓN
-// ==================================================
-
-// Definición de permisos por rol
-const PERMISOS_ROL = {
-  'SUPER_ADMIN': ['*'],
-  'ADMIN': ['dashboard', 'flota', 'taller', 'combustible', 'reportes', 'usuarios', 'unidades'],
-  'TALLER': ['dashboard', 'taller', 'reportes_ot'],
-  'CHOFER': ['dashboard', 'salida', 'entrada', 'combustible_registro'],
-  'SUPERVISOR': ['dashboard', 'flota', 'reportes', 'alertas']
-};
-
-function apiLoginWithSession(pin) {
-  const loginResult = apiLogin(pin);
-  if (!loginResult.exito) return loginResult;
-  
-  const token = Utilities.getUuid();
-  const expires = new Date();
-  expires.setHours(expires.getHours() + 8);
-  
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sessSheet = ss.getSheetByName('SESIONES');
-  if (!sessSheet) {
-    sessSheet = ss.insertSheet('SESIONES');
-    sessSheet.appendRow(['TOKEN', 'PIN', 'NOMBRE', 'ROL', 'FECHA_CREACION', 'EXPIRA', 'ACTIVO']);
-    sessSheet.getRange(1, 1, 1, 7).setBackground('#0f172a').setFontColor('white').setFontWeight('bold');
-    sessSheet.setFrozenRows(1);
-  }
-  
-  sessSheet.appendRow([token, pin, loginResult.user.nombre, loginResult.user.rol, new Date(), expires, true]);
-  
-  return { 
-    ...loginResult, 
-    token,
-    expiresAt: expires.toISOString(),
-    permisos: PERMISOS_ROL[loginResult.user.rol] || []
-  };
-}
-
-function validarSesion(token) {
-  if (!token) return { valido: false, error: 'Token no proporcionado' };
-  
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sessSheet = ss.getSheetByName('SESIONES');
-  if (!sessSheet) return { valido: false, error: 'Sin sesiones activas' };
-  
-  const data = sessSheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === token && data[i][6] === true) {
-      if (new Date() < new Date(data[i][5])) {
-        return { 
-          valido: true, 
-          pin: data[i][1], 
-          nombre: data[i][2], 
-          rol: data[i][3],
-          permisos: PERMISOS_ROL[data[i][3]] || []
-        };
-      } else {
-        // Sesión expirada
-        sessSheet.getRange(i + 1, 7).setValue(false);
-        return { valido: false, error: 'Sesión expirada' };
+  for(let i=1; i<d.length; i++){
+    if(d[i][0] == folioSol){
+      const otRef = d[i][1];
+      const unidad = d[i][2];
+      
+      if(accion === 'APROBAR') {
+        s.getRange(i+1, 6).setValue('APROBADA');
+        registrarTrazabilidad(unidad, otRef, 'SOLICITUD_APROBADA', 'Material autorizado para compra.', 'ADMIN');
+      } 
+      else if(accion === 'ENTREGAR') {
+        s.getRange(i+1, 6).setValue('ENTREGADA');
+        s.getRange(i+1, 7).setValue(costo);
+        s.getRange(i+1, 8).setValue(new Date());
+        
+        // Reactivar OT
+        const sOT = ss.getSheetByName('ORDENES_TRABAJO');
+        const dOT = sOT.getDataRange().getValues();
+        for(let j=1; j<dOT.length; j++){
+          if(dOT[j][0] == otRef){
+            sOT.getRange(j+1, 6).setValue('EN_PROCESO'); // Estado
+            sOT.getRange(j+1, 9).setValue(new Date());   // Inicio Real
+            break;
+          }
+        }
+        registrarTrazabilidad(unidad, otRef, 'ENTREGA_MATERIAL', `Material entregado ($${costo}). Inicia trabajo en taller.`, 'ADMIN');
       }
+      break;
     }
   }
-  return { valido: false, error: 'Token inválido' };
+  return { exito: true };
 }
 
-function apiLogout(token) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sessSheet = ss.getSheetByName('SESIONES');
-  if (!sessSheet) return { exito: false, error: 'Sin sesiones' };
+// --- 6. OPERACIONES CHOFER (SALIDAS/ENTRADAS) ---
+function procesarSalida(datos) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  ss.getSheetByName('VIAJES').appendRow([Date.now(), datos.unidad, datos.pin, new Date(), datos.km, datos.motivo, '', '', '', '', '', 'ABIERTO', '', '']);
+  actualizarEstadoUnidad(datos.unidad, 'EN_VIAJE');
+  return {exito:true};
+}
+
+function procesarEntrada(datos) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sv = ss.getSheetByName('VIAJES');
+  const data = sv.getDataRange().getValues();
+  let fila = -1;
+  for(let i=data.length-1; i>0; i--){
+    if(data[i][1] == datos.unidad && data[i][11] == 'ABIERTO') { fila = i+1; break; }
+  }
   
-  const data = sessSheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === token) {
-      sessSheet.getRange(i + 1, 7).setValue(false);
-      return { exito: true, mensaje: 'Sesión cerrada correctamente' };
+  if(fila > 0){
+    sv.getRange(fila, 9).setValue(new Date());
+    sv.getRange(fila, 10).setValue(datos.km);
+    sv.getRange(fila, 12).setValue('CERRADO');
+    if(datos.falla === 'SI'){
+      sv.getRange(fila, 13).setValue('SI');
+      sv.getRange(fila, 14).setValue(datos.descFalla);
+      actualizarEstadoUnidad(datos.unidad, 'MANTENIMIENTO');
+      registrarEventoKardex(datos.unidad, 'VIAJE-'+Date.now(), 'CORRECTIVO', 'Falla en ruta: ' + datos.descFalla);
+    } else {
+      actualizarEstadoUnidad(datos.unidad, 'DISPONIBLE');
+    }
+    const sUni = ss.getSheetByName('UNIDADES');
+    const dUni = sUni.getDataRange().getValues();
+    for(let k=1; k<dUni.length; k++) if(dUni[k][0] == datos.unidad) { sUni.getRange(k+1, 5).setValue(datos.km); break; }
+    return {exito:true};
+  }
+  return {exito:false, error: 'No hay viaje abierto'};
+}
+
+function registrarInspeccion(datos) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let s = ss.getSheetByName('INSPECCIONES');
+  if(!s) { s=ss.insertSheet('INSPECCIONES'); s.appendRow(['ID','FECHA','PIN','UNIDAD','OK','FAIL','OBS','RES','PDF']); }
+  const id = Date.now();
+  const res = datos.itemsFail.length > 0 ? 'RECHAZADO' : 'APROBADO';
+  const pdfUrl = generarPDFInspeccionInterno(id, datos, res);
+  s.appendRow([id, new Date(), datos.pin, datos.unidad, datos.itemsOk.join(','), datos.itemsFail.join(','), datos.obs, res, pdfUrl]);
+  return {exito:true};
+}
+
+function registrarDiesel(datos, foto) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let s = ss.getSheetByName('DIESEL');
+  if(!s) { s=ss.insertSheet('DIESEL'); s.appendRow(['FECHA','UNIDAD','PIN','LITROS','COSTO','KM','FOTO']); }
+  let url = '';
+  if(foto){
+    try{
+      const blob = Utilities.newBlob(Utilities.base64Decode(foto), 'image/jpeg', 'Diesel_'+Date.now());
+      url = DriveApp.createFile(blob).setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW).getUrl();
+    }catch(e){}
+  }
+  s.appendRow([new Date(), datos.unidad, datos.pin, datos.litros, datos.costo, datos.km, url]);
+  return {exito:true};
+}
+
+// --- 7. TRAZABILIDAD Y KARDEX ---
+function registrarTrazabilidad(unidad, ot, evento, detalle, usuario) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let s = ss.getSheetByName('KARDEX_TRAZA');
+  if(!s) { s=ss.insertSheet('KARDEX_TRAZA'); s.appendRow(['FECHA','UNIDAD','OT_REF','EVENTO','DETALLE','USUARIO']); }
+  s.appendRow([new Date(), unidad, ot, evento, detalle, usuario]);
+}
+
+function registrarEventoKardex(unidad, folio, tipo, descripcion) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let s = ss.getSheetByName('KARDEX_EVENTOS'); 
+  if(!s) { s=ss.insertSheet('KARDEX_EVENTOS'); s.appendRow(['FECHA','UNIDAD','FOLIO','TIPO','DESCRIPCION']); }
+  s.appendRow([new Date(), unidad, folio, tipo, descripcion]);
+}
+
+function obtenerRadiografiaUnidad(unidadId) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const uData = ss.getSheetByName('UNIDADES').getDataRange().getValues();
+  let info = {};
+  for(let i=1; i<uData.length; i++) if(uData[i][0] == unidadId) {
+    info = { id:uData[i][0], placa:uData[i][1], modelo:uData[i][2], estado:uData[i][3], odo:uData[i][4], tipo:uData[i][5], poliza:uData[i][6], vigencia:uData[i][7], foto:uData[i][8] };
+  }
+  
+  let eventos = [];
+  const sEvt = ss.getSheetByName('KARDEX_EVENTOS');
+  if(sEvt){
+    const dEvt = sEvt.getDataRange().getValues();
+    for(let i=dEvt.length-1; i>0; i--){
+      if(dEvt[i][1] == unidadId) eventos.push({fecha: new Date(dEvt[i][0]).toLocaleDateString(), folio:dEvt[i][2], tipo:dEvt[i][3], desc:dEvt[i][4]});
     }
   }
-  return { exito: false, error: 'Token no encontrado' };
+
+  let traza = [];
+  const sTra = ss.getSheetByName('KARDEX_TRAZA');
+  if(sTra){
+    const dTra = sTra.getDataRange().getValues();
+    for(let i=dTra.length-1; i>0; i--){
+      if(dTra[i][1] == unidadId) traza.push({fecha: new Date(dTra[i][0]).toLocaleString(), ot:dTra[i][2], evento:dTra[i][3], detalle:dTra[i][4], user:dTra[i][5]});
+    }
+  }
+  return { info, eventos, traza };
 }
 
-function verificarPermiso(pin, modulo) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('USUARIOS');
-  const data = sheet.getDataRange().getValues();
+// FUNCIÃ“N KARDEX - Usada por el frontend para ver detalles de unidad
+function obtenerKardexUnidad(unidadId) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === String(pin)) {
-      const rol = data[i][2];
-      const permisos = PERMISOS_ROL[rol] || [];
-      return {
-        permitido: permisos.includes('*') || permisos.includes(modulo),
-        rol: rol,
-        modulo: modulo
+  // Info bÃ¡sica de la unidad
+  const uData = ss.getSheetByName('UNIDADES').getDataRange().getValues();
+  let info = {};
+  for(let i=1; i<uData.length; i++) {
+    if(uData[i][0] == unidadId) {
+      info = { 
+        id: uData[i][0], 
+        placa: uData[i][1], 
+        modelo: uData[i][2], 
+        estado: uData[i][3], 
+        odo: uData[i][4] || 0
       };
-    }
-  }
-  return { permitido: false, error: 'Usuario no encontrado' };
-}
-
-// ==================================================
-// FASE 2: GESTIÓN AVANZADA DE UNIDADES
-// ==================================================
-
-function apiGetUnidades(filtros) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const data = ss.getSheetByName('UNIDADES').getDataRange().getValues().slice(1);
-  
-  let resultado = data.map(u => ({
-    id: u[0],
-    tipo: u[1],
-    modelo: u[2],
-    placas: u[3],
-    estado: u[4],
-    odometro: u[5],
-    combustible: u[6],
-    foto: u[7]
-  }));
-  
-  if (filtros) {
-    if (filtros.estado) resultado = resultado.filter(u => u.estado === filtros.estado);
-    if (filtros.tipo) resultado = resultado.filter(u => u.tipo === filtros.tipo);
-    if (filtros.excluirBaja !== false) resultado = resultado.filter(u => u.estado !== 'BAJA');
-    if (filtros.buscar) {
-      const term = filtros.buscar.toLowerCase();
-      resultado = resultado.filter(u => 
-        u.id.toLowerCase().includes(term) || 
-        u.modelo.toLowerCase().includes(term) ||
-        u.placas.toLowerCase().includes(term)
-      );
+      break;
     }
   }
   
-  return { exito: true, unidades: resultado, total: resultado.length };
-}
-
-function apiCrearUnidad(payload) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('UNIDADES');
-  
-  if (!payload.id || !payload.tipo || !payload.marcaModelo) {
-    return { exito: false, error: 'Faltan campos obligatorios (id, tipo, marcaModelo)' };
-  }
-  
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]).toLowerCase() === String(payload.id).toLowerCase()) {
-      return { exito: false, error: 'ID de unidad ya existe' };
-    }
-  }
-  
-  sheet.appendRow([
-    payload.id,
-    payload.tipo,
-    payload.marcaModelo,
-    payload.placas || '',
-    'DISPONIBLE',
-    payload.odometro || 0,
-    payload.combustible || 100,
-    payload.fotoUrl || ''
-  ]);
-  
-  crearAlerta('UNIDAD_NUEVA', `Nueva unidad registrada: ${payload.id} (${payload.marcaModelo})`, payload.id, 'BAJA');
-  
-  return { exito: true, mensaje: 'Unidad creada correctamente', id: payload.id };
-}
-
-function apiActualizarUnidad(id, payload) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('UNIDADES');
-  const data = sheet.getDataRange().getValues();
-  
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === String(id)) {
-      if (payload.tipo) sheet.getRange(i + 1, 2).setValue(payload.tipo);
-      if (payload.marcaModelo) sheet.getRange(i + 1, 3).setValue(payload.marcaModelo);
-      if (payload.placas) sheet.getRange(i + 1, 4).setValue(payload.placas);
-      if (payload.estado) sheet.getRange(i + 1, 5).setValue(payload.estado);
-      if (payload.odometro) sheet.getRange(i + 1, 6).setValue(payload.odometro);
-      if (payload.combustible) sheet.getRange(i + 1, 7).setValue(payload.combustible);
-      if (payload.fotoUrl) sheet.getRange(i + 1, 8).setValue(payload.fotoUrl);
-      return { exito: true, mensaje: 'Unidad actualizada' };
-    }
-  }
-  return { exito: false, error: 'Unidad no encontrada' };
-}
-
-function apiEliminarUnidad(id) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('UNIDADES');
-  const data = sheet.getDataRange().getValues();
-  
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === String(id)) {
-      if (data[i][4] === 'EN_RUTA') {
-        return { exito: false, error: 'No se puede dar de baja una unidad en ruta' };
+  // Ãšltimos viajes
+  let viajes = [];
+  const sViajes = ss.getSheetByName('VIAJES');
+  if(sViajes) {
+    const vData = sViajes.getDataRange().getValues();
+    for(let i=vData.length-1; i>0 && viajes.length < 10; i--) {
+      if(vData[i][1] == unidadId) {
+        viajes.push({
+          fecha: new Date(vData[i][3]).toLocaleDateString(),
+          chofer: obtenerNombre(vData[i][2]),
+          destino: vData[i][5] || 'Sin destino',
+          kmSalida: vData[i][4],
+          kmEntrada: vData[i][9] || '-',
+          estado: vData[i][11]
+        });
       }
-      sheet.getRange(i + 1, 5).setValue('BAJA');
-      crearAlerta('UNIDAD_BAJA', `Unidad ${id} dada de baja`, id, 'MEDIA');
-      return { exito: true, mensaje: 'Unidad dada de baja' };
     }
   }
-  return { exito: false, error: 'Unidad no encontrada' };
+  
+  // Fallas reportadas
+  let fallas = [];
+  if(sViajes) {
+    const vData = sViajes.getDataRange().getValues();
+    for(let i=vData.length-1; i>0 && fallas.length < 10; i--) {
+      if(vData[i][1] == unidadId && vData[i][12] == 'SI') {
+        fallas.push({
+          fecha: new Date(vData[i][3]).toLocaleDateString(),
+          desc: vData[i][13] || 'Sin descripciÃ³n'
+        });
+      }
+    }
+  }
+  
+  return { info, viajes, fallas };
 }
 
-function apiReactivarUnidad(id) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('UNIDADES');
+// CORRECCIÃ“N PRINCIPAL: NOMBRE DE LA FUNCIÃ“N
+function obtenerHistorialInspecciones() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('INSPECCIONES');
+  if(!sheet) return [];
   const data = sheet.getDataRange().getValues();
-  
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === String(id)) {
-      sheet.getRange(i + 1, 5).setValue('DISPONIBLE');
-      return { exito: true, mensaje: 'Unidad reactivada' };
-    }
+  let list = [];
+  for(let i=data.length-1; i>0; i--){
+    if(list.length >= 20) break;
+    list.push({
+      fecha: new Date(data[i][1]).toLocaleDateString(),
+      chofer: obtenerNombre(data[i][2]),
+      unidad: data[i][3],
+      resultado: data[i][7],
+      pdf: data[i][8]
+    });
   }
-  return { exito: false, error: 'Unidad no encontrada' };
+  return list;
 }
 
-// ==================================================
-// FASE 3: GESTIÓN DE USUARIOS
-// ==================================================
+// --- 8. EDITOR DE FLOTA ---
+function guardarDatosUnidad(datos, fotoBase64) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const s = ss.getSheetByName('UNIDADES');
+  const d = s.getDataRange().getValues();
+  
+  let fotoUrl = datos.fotoActual || '';
+  if(fotoBase64){
+    try{
+      const blob = Utilities.newBlob(Utilities.base64Decode(fotoBase64), 'image/jpeg', 'Uni_'+datos.id);
+      fotoUrl = DriveApp.createFile(blob).setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW).getUrl();
+    }catch(e){}
+  }
 
-function apiGetUsuarios(filtros) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const data = ss.getSheetByName('USUARIOS').getDataRange().getValues().slice(1);
-  
-  let resultado = data.map(u => ({
-    pin: u[0],
-    nombre: u[1],
-    rol: u[2],
-    estado: u[3],
-    email: u[4]
-  }));
-  
-  if (filtros) {
-    if (filtros.estado) resultado = resultado.filter(u => u.estado === filtros.estado);
-    if (filtros.rol) resultado = resultado.filter(u => u.rol === filtros.rol);
-    if (filtros.buscar) {
-      const term = filtros.buscar.toLowerCase();
-      resultado = resultado.filter(u => 
-        u.nombre.toLowerCase().includes(term) ||
-        String(u.pin).includes(term)
-      );
+  for(let i=1; i<d.length; i++){
+    if(d[i][0] == datos.id){
+      s.getRange(i+1, 2).setValue(datos.placa);
+      s.getRange(i+1, 3).setValue(datos.modelo);
+      s.getRange(i+1, 6).setValue(datos.tipo);
+      s.getRange(i+1, 7).setValue(datos.poliza);
+      s.getRange(i+1, 8).setValue(datos.vigencia);
+      s.getRange(i+1, 9).setValue(fotoUrl);
+      break;
     }
   }
-  
-  return { exito: true, usuarios: resultado, total: resultado.length };
+  return {exito:true};
 }
 
-function apiCrearUsuario(payload) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('USUARIOS');
-  
-  if (!payload.pin || !payload.nombre) {
-    return { exito: false, error: 'PIN y nombre son obligatorios' };
-  }
-  
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === String(payload.pin)) {
-      return { exito: false, error: 'PIN ya existe' };
-    }
-  }
-  
-  const rolesValidos = Object.keys(PERMISOS_ROL);
-  const rol = rolesValidos.includes(payload.rol) ? payload.rol : 'CHOFER';
-  
-  sheet.appendRow([
-    payload.pin,
-    payload.nombre,
-    rol,
-    'ACTIVO',
-    payload.email || ''
-  ]);
-  
-  return { exito: true, mensaje: 'Usuario creado correctamente' };
+// --- 9. REPORTES BI & PDF (DISEÃ‘O NAVY/GOLD + INTERPRETACIÃ“N) ---
+function getEstiloPremium() {
+  return `<style>
+    @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700&display=swap');
+    body{font-family:'Montserrat',sans-serif;color:#333;margin:0;font-size:9pt;}
+    .header{background:#0f172a;color:white;padding:30px;position:relative;}
+    .header::after{content:'';position:absolute;bottom:0;left:0;right:0;height:4px;background:linear-gradient(90deg,#d4af37,#f3e5ab,#d4af37);}
+    .top{display:flex;justify-content:space-between;align-items:center;}
+    .logo{height:60px;} .title{font-size:20pt;font-weight:700;color:#d4af37;margin:0;}
+    .grid{display:flex;gap:15px;margin:20px 0;}
+    .card{flex:1;background:#f8fafc;padding:15px;border-left:4px solid #0f172a;border-radius:4px;}
+    .val{font-size:16pt;font-weight:700;color:#0f172a;} .lbl{font-size:7pt;text-transform:uppercase;color:#64748b;}
+    table{width:100%;border-collapse:collapse;margin-top:20px;}
+    th{background:#0f172a;color:#d4af37;padding:8px;font-size:8pt;text-align:left;}
+    td{padding:8px;border-bottom:1px solid #eee;}
+    .interpretacion{background:#f0fdf4;padding:15px;border:1px solid #22c55e;margin-top:20px;border-radius:5px;}
+    .footer{position:fixed;bottom:0;width:100%;text-align:center;padding:10px;font-size:7pt;color:#999;border-top:1px solid #eee;}
+  </style>`;
 }
 
-function apiActualizarUsuario(pin, payload) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('USUARIOS');
-  const data = sheet.getDataRange().getValues();
+function crearPDF(html, nombre) {
+  const blob = Utilities.newBlob(html, MimeType.HTML).getAs(MimeType.PDF).setName(nombre);
+  return DriveApp.createFile(blob).setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW).getUrl();
+}
+
+function generarPDFAnalytics(ini, fin) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const kpis = getReporteBiAnalytics(ini, fin);
+  const logo = getAvaLogo();
+  const dIni = new Date(ini), dFin = new Date(fin);
+  dFin.setHours(23,59,59);
   
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === String(pin)) {
-      if (payload.nombre) sheet.getRange(i + 1, 2).setValue(payload.nombre);
-      if (payload.rol) {
-        const rolesValidos = Object.keys(PERMISOS_ROL);
-        if (rolesValidos.includes(payload.rol)) {
-          sheet.getRange(i + 1, 3).setValue(payload.rol);
+  // --- ANÃLISIS DETALLADO POR UNIDAD ---
+  const uData = ss.getSheetByName('UNIDADES').getDataRange().getValues();
+  const vData = ss.getSheetByName('VIAJES') ? ss.getSheetByName('VIAJES').getDataRange().getValues() : [];
+  const dData = ss.getSheetByName('DIESEL') ? ss.getSheetByName('DIESEL').getDataRange().getValues() : [];
+  const otData = ss.getSheetByName('ORDENES_TRABAJO') ? ss.getSheetByName('ORDENES_TRABAJO').getDataRange().getValues() : [];
+  
+  let unidadesAnalisis = [];
+  let totalKmRecorridos = 0;
+  let totalViajes = 0;
+  let totalLitros = 0;
+  
+  for(let i=1; i<uData.length; i++) {
+    const unidadId = uData[i][0];
+    let viajesUnidad = 0, kmUnidad = 0, litrosUnidad = 0, costoFuelUnidad = 0, mantsUnidad = 0;
+    
+    // Contar viajes y KM
+    for(let j=1; j<vData.length; j++) {
+      if(vData[j][1] == unidadId) {
+        const fViaje = new Date(vData[j][3]);
+        if(fViaje >= dIni && fViaje <= dFin) {
+          viajesUnidad++;
+          const kmS = Number(vData[j][4]) || 0;
+          const kmE = Number(vData[j][9]) || 0;
+          if(kmE > kmS) kmUnidad += (kmE - kmS);
         }
       }
-      if (payload.estado) sheet.getRange(i + 1, 4).setValue(payload.estado);
-      if (payload.email) sheet.getRange(i + 1, 5).setValue(payload.email);
-      return { exito: true, mensaje: 'Usuario actualizado' };
-    }
-  }
-  return { exito: false, error: 'Usuario no encontrado' };
-}
-
-function apiDesactivarUsuario(pin) {
-  return apiActualizarUsuario(pin, { estado: 'INACTIVO' });
-}
-
-function apiActivarUsuario(pin) {
-  return apiActualizarUsuario(pin, { estado: 'ACTIVO' });
-}
-
-function apiGetRolesDisponibles() {
-  return {
-    exito: true,
-    roles: Object.entries(PERMISOS_ROL).map(([rol, permisos]) => ({
-      rol,
-      permisos,
-      descripcion: getDescripcionRol(rol)
-    }))
-  };
-}
-
-function getDescripcionRol(rol) {
-  const descripciones = {
-    'SUPER_ADMIN': 'Acceso total al sistema',
-    'ADMIN': 'Administrador con acceso a todas las operaciones',
-    'TALLER': 'Gestión de órdenes de trabajo y mantenimiento',
-    'CHOFER': 'Registro de salidas, entradas y combustible',
-    'SUPERVISOR': 'Supervisión de flota y reportes'
-  };
-  return descripciones[rol] || 'Sin descripción';
-}
-
-// ==================================================
-// FASE 4: SISTEMA DE ALERTAS Y NOTIFICACIONES
-// ==================================================
-
-function crearAlerta(tipo, mensaje, unidadId, prioridad) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName('ALERTAS');
-  
-  if (!sheet) {
-    sheet = ss.insertSheet('ALERTAS');
-    sheet.appendRow(['ID', 'TIPO', 'MENSAJE', 'UNIDAD_ID', 'FECHA', 'LEIDA', 'PRIORIDAD']);
-    sheet.getRange(1, 1, 1, 7).setBackground('#0f172a').setFontColor('white').setFontWeight('bold');
-    sheet.setFrozenRows(1);
-  }
-  
-  const id = 'ALR-' + Date.now();
-  sheet.appendRow([id, tipo, mensaje, unidadId || '', new Date(), false, prioridad || 'MEDIA']);
-  
-  return id;
-}
-
-function apiGetAlertas(filtros) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('ALERTAS');
-  if (!sheet) return { exito: true, alertas: [], total: 0, noLeidas: 0 };
-  
-  let data = sheet.getDataRange().getValues().slice(1);
-  
-  let alertas = data.map(a => ({
-    id: a[0],
-    tipo: a[1],
-    mensaje: a[2],
-    unidadId: a[3],
-    fecha: a[4],
-    leida: a[5],
-    prioridad: a[6]
-  }));
-  
-  const noLeidas = alertas.filter(a => !a.leida).length;
-  
-  if (filtros) {
-    if (filtros.soloNoLeidas) alertas = alertas.filter(a => !a.leida);
-    if (filtros.tipo) alertas = alertas.filter(a => a.tipo === filtros.tipo);
-    if (filtros.prioridad) alertas = alertas.filter(a => a.prioridad === filtros.prioridad);
-    if (filtros.unidadId) alertas = alertas.filter(a => a.unidadId === filtros.unidadId);
-  }
-  
-  alertas.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
-  
-  if (filtros && filtros.limite) {
-    alertas = alertas.slice(0, filtros.limite);
-  }
-  
-  return { exito: true, alertas, total: alertas.length, noLeidas };
-}
-
-function apiMarcarAlertaLeida(id) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('ALERTAS');
-  if (!sheet) return { exito: false, error: 'No hay alertas' };
-  
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === id) {
-      sheet.getRange(i + 1, 6).setValue(true);
-      return { exito: true };
-    }
-  }
-  return { exito: false, error: 'Alerta no encontrada' };
-}
-
-function apiMarcarTodasLeidas() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('ALERTAS');
-  if (!sheet) return { exito: false };
-  
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][5] === false) {
-      sheet.getRange(i + 1, 6).setValue(true);
-    }
-  }
-  return { exito: true, mensaje: 'Todas las alertas marcadas como leídas' };
-}
-
-function apiEliminarAlerta(id) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('ALERTAS');
-  if (!sheet) return { exito: false };
-  
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === id) {
-      sheet.deleteRow(i + 1);
-      return { exito: true };
-    }
-  }
-  return { exito: false, error: 'Alerta no encontrada' };
-}
-
-// Función para ejecutar con trigger diario
-function verificarMantenimientosProgramados() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const unidades = ss.getSheetByName('UNIDADES').getDataRange().getValues().slice(1);
-  let alertasCreadas = 0;
-  
-  unidades.forEach(u => {
-    const id = u[0];
-    const odo = u[5] || 0;
-    const estado = u[4];
-    
-    if (estado === 'BAJA') return;
-    
-    // Alerta cada 5000 km
-    const proximoMtto = Math.ceil(odo / 5000) * 5000;
-    if (odo > 0 && (proximoMtto - odo) <= 200) {
-      crearAlerta(
-        'MANTENIMIENTO_PREVENTIVO',
-        `Unidad ${id} próxima a mantenimiento preventivo (${odo}/${proximoMtto} km)`,
-        id,
-        'ALTA'
-      );
-      alertasCreadas++;
     }
     
-    // Alerta combustible bajo (<20%)
-    const gas = u[6] || 0;
-    if (gas < 20 && estado !== 'MANTENIMIENTO') {
-      crearAlerta(
-        'COMBUSTIBLE_BAJO',
-        `Unidad ${id} con combustible bajo (${gas}%)`,
-        id,
-        'MEDIA'
-      );
-      alertasCreadas++;
+    // Contar diesel
+    for(let j=1; j<dData.length; j++) {
+      if(dData[j][1] == unidadId) {
+        const fDiesel = new Date(dData[j][0]);
+        if(fDiesel >= dIni && fDiesel <= dFin) {
+          litrosUnidad += Number(dData[j][3]) || 0;
+          costoFuelUnidad += Number(dData[j][4]) || 0;
+        }
+      }
     }
-  });
+    
+    // Contar mantenimientos
+    for(let j=1; j<otData.length; j++) {
+      if(otData[j][2] == unidadId) {
+        const fOT = new Date(otData[j][1]);
+        if(fOT >= dIni && fOT <= dFin) mantsUnidad++;
+      }
+    }
+    
+    const rendimiento = litrosUnidad > 0 ? (kmUnidad / litrosUnidad).toFixed(2) : 'N/A';
+    
+    unidadesAnalisis.push({
+      id: unidadId,
+      placa: uData[i][1],
+      modelo: uData[i][2],
+      estado: uData[i][3],
+      odo: uData[i][4] || 0,
+      viajes: viajesUnidad,
+      km: kmUnidad,
+      litros: litrosUnidad,
+      costoFuel: costoFuelUnidad,
+      mants: mantsUnidad,
+      rend: rendimiento
+    });
+    
+    totalKmRecorridos += kmUnidad;
+    totalViajes += viajesUnidad;
+    totalLitros += litrosUnidad;
+  }
   
-  return { alertasCreadas };
+  // Ordenar por km recorridos (mÃ¡s activas primero)
+  unidadesAnalisis.sort((a,b) => b.km - a.km);
+  
+  // --- INTERPRETACIÃ“N INTELIGENTE ---
+  let interp = [];
+  
+  // AnÃ¡lisis de disponibilidad
+  if(kpis.indisponibilidad > 25) {
+    interp.push('ðŸš¨ <strong>CRÃTICO - DISPONIBILIDAD:</strong> Con ' + kpis.indisponibilidad + '% de indisponibilidad, la operaciÃ³n estÃ¡ en riesgo. Se recomienda revisar capacidad de taller y tiempos de respuesta de proveedores.');
+  } else if(kpis.indisponibilidad > 15) {
+    interp.push('âš ï¸ <strong>ALERTA - DISPONIBILIDAD:</strong> ' + kpis.indisponibilidad + '% de unidades fuera de servicio. Evaluar programaciÃ³n de mantenimientos preventivos.');
+  } else {
+    interp.push('âœ… <strong>DISPONIBILIDAD Ã“PTIMA:</strong> ' + ((100 - kpis.indisponibilidad).toFixed(1)) + '% de la flota operativa.');
+  }
+  
+  // AnÃ¡lisis de combustible
+  const rendimientoPromedio = totalLitros > 0 ? (totalKmRecorridos / totalLitros).toFixed(2) : 0;
+  if(rendimientoPromedio < 4) {
+    interp.push('ðŸ“‰ <strong>RENDIMIENTO BAJO:</strong> Promedio de ' + rendimientoPromedio + ' km/L. Revisar hÃ¡bitos de conducciÃ³n y estado mecÃ¡nico.');
+  } else if(rendimientoPromedio >= 6) {
+    interp.push('â›½ <strong>BUEN RENDIMIENTO:</strong> ' + rendimientoPromedio + ' km/L promedio. La flota es eficiente.');
+  }
+  
+  // AnÃ¡lisis de actividad
+  const promedioViajes = (totalViajes / kpis.total).toFixed(1);
+  interp.push('ðŸ“Š <strong>ACTIVIDAD:</strong> ' + totalViajes + ' viajes realizados (' + promedioViajes + ' promedio por unidad). Total ' + totalKmRecorridos.toLocaleString() + ' km recorridos.');
+  
+  // Unidades con baja actividad
+  const unidadesSinActividad = unidadesAnalisis.filter(u => u.viajes === 0 && u.estado === 'DISPONIBLE');
+  if(unidadesSinActividad.length > 0) {
+    interp.push('ðŸ’¤ <strong>SUBUTILIZACIÃ“N:</strong> ' + unidadesSinActividad.length + ' unidad(es) sin actividad en el perÃ­odo: ' + unidadesSinActividad.map(u => u.id).join(', '));
+  }
+  
+  // --- GENERAR HTML DEL PDF ---
+  let html = `<!DOCTYPE html><html><head>
+    ${getEstiloPremium()}
+    <style>
+      .section{margin-top:25px;page-break-inside:avoid;}
+      .section-title{font-size:12pt;font-weight:700;color:#0f172a;border-bottom:2px solid #d4af37;padding-bottom:5px;margin-bottom:15px;}
+      .unit-row{display:flex;padding:8px 0;border-bottom:1px solid #eee;font-size:8pt;}
+      .unit-row:nth-child(even){background:#f8fafc;}
+      .unit-col{flex:1;padding:0 5px;}
+      .stat-good{color:#10b981;font-weight:600;}
+      .stat-warn{color:#f59e0b;font-weight:600;}
+      .stat-bad{color:#ef4444;font-weight:600;}
+      .kpi-row{display:flex;gap:10px;margin-bottom:15px;}
+      .kpi-item{flex:1;background:#f8fafc;padding:12px;text-align:center;border-radius:8px;border-left:4px solid #0f172a;}
+      .kpi-num{font-size:18pt;font-weight:700;color:#0f172a;}
+      .kpi-label{font-size:7pt;color:#64748b;text-transform:uppercase;}
+      .insights{background:linear-gradient(135deg,#f0fdf4,#ecfdf5);padding:15px;border-radius:8px;border-left:4px solid #22c55e;margin-top:20px;}
+      .insight-item{padding:5px 0;font-size:9pt;line-height:1.5;}
+    </style>
+  </head><body>
+    <div class="header">
+      <div class="top">
+        <img src="${logo}" class="logo">
+        <div style="text-align:right">
+          <div class="title">ANALYTICS DE FLOTA</div>
+          <div style="font-size:9pt">${ini} al ${fin}</div>
+          <div style="font-size:8pt;opacity:0.8">Generado: ${new Date().toLocaleString()}</div>
+        </div>
+      </div>
+    </div>
+    
+    <div style="padding:30px;">
+      <!-- KPIs PRINCIPALES -->
+      <div class="kpi-row">
+        <div class="kpi-item">
+          <div class="kpi-num">${kpis.total}</div>
+          <div class="kpi-label">Total Unidades</div>
+        </div>
+        <div class="kpi-item" style="border-color:#10b981">
+          <div class="kpi-num stat-good">${kpis.disp}</div>
+          <div class="kpi-label">Operativas</div>
+        </div>
+        <div class="kpi-item" style="border-color:#ef4444">
+          <div class="kpi-num stat-bad">${kpis.taller}</div>
+          <div class="kpi-label">En Taller</div>
+        </div>
+        <div class="kpi-item" style="border-color:#f59e0b">
+          <div class="kpi-num">${kpis.indisponibilidad}%</div>
+          <div class="kpi-label">Indisponibilidad</div>
+        </div>
+      </div>
+      
+      <div class="kpi-row">
+        <div class="kpi-item">
+          <div class="kpi-num">${totalViajes}</div>
+          <div class="kpi-label">Viajes Realizados</div>
+        </div>
+        <div class="kpi-item">
+          <div class="kpi-num">${totalKmRecorridos.toLocaleString()}</div>
+          <div class="kpi-label">KM Recorridos</div>
+        </div>
+        <div class="kpi-item">
+          <div class="kpi-num">${totalLitros.toLocaleString()}</div>
+          <div class="kpi-label">Litros Diesel</div>
+        </div>
+        <div class="kpi-item" style="border-color:#8b5cf6">
+          <div class="kpi-num">$${kpis.gastoComb.toLocaleString()}</div>
+          <div class="kpi-label">Gasto Combustible</div>
+        </div>
+      </div>
+      
+      <!-- ANÃLISIS E INTERPRETACIÃ“N -->
+      <div class="insights">
+        <strong style="font-size:10pt;color:#166534;">ðŸ“‹ ANÃLISIS E INSIGHTS</strong>
+        ${interp.map(i => '<div class="insight-item">' + i + '</div>').join('')}
+      </div>
+      
+      <!-- DESGLOSE POR UNIDAD -->
+      <div class="section">
+        <div class="section-title">ðŸ“Š DESGLOSE POR UNIDAD</div>
+        <div style="display:flex;background:#0f172a;color:#d4af37;padding:8px;font-size:8pt;font-weight:600;">
+          <div class="unit-col">UNIDAD</div>
+          <div class="unit-col">MODELO</div>
+          <div class="unit-col">ESTADO</div>
+          <div class="unit-col">VIAJES</div>
+          <div class="unit-col">KM</div>
+          <div class="unit-col">LITROS</div>
+          <div class="unit-col">REND</div>
+          <div class="unit-col">MANTS</div>
+        </div>
+        ${unidadesAnalisis.map(u => `
+          <div class="unit-row">
+            <div class="unit-col"><strong>${u.id}</strong></div>
+            <div class="unit-col">${u.modelo}</div>
+            <div class="unit-col ${u.estado==='DISPONIBLE'||u.estado==='EN_VIAJE'?'stat-good':u.estado==='MANTENIMIENTO'?'stat-bad':''}">${u.estado}</div>
+            <div class="unit-col">${u.viajes}</div>
+            <div class="unit-col">${u.km.toLocaleString()}</div>
+            <div class="unit-col">${u.litros}</div>
+            <div class="unit-col ${u.rend!=='N/A'&&u.rend>=5?'stat-good':u.rend!=='N/A'&&u.rend<3?'stat-bad':''}">${u.rend}</div>
+            <div class="unit-col">${u.mants}</div>
+          </div>
+        `).join('')}
+      </div>
+      
+    </div>
+    <div class="footer">AVA FleetControl Intelligence | Reporte Generado AutomÃ¡ticamente</div>
+  </body></html>`;
+  
+  return {exito:true, url: crearPDF(html, `Analytics_${ini}.pdf`)};
 }
 
-// ==================================================
-// FASE 5: MÉTRICAS Y ANALYTICS AVANZADOS
-// ==================================================
+function generarPDFInspeccionInterno(id, datos, res) {
+  const logo = getAvaLogo();
+  const color = res === 'APROBADO' ? '#16a34a' : '#dc2626';
+  let html = `<!DOCTYPE html><html><head>${getEstiloPremium()}</head><body>
+    <div class="header"><div class="top"><img src="${logo}" class="logo"><div><div class="title">INSPECCIÃ“N</div><div>${id}</div></div></div></div>
+    <div style="padding:40px;">
+      <div class="grid">
+        <div class="card"><div class="val">${datos.unidad}</div><div class="lbl">Unidad</div></div>
+        <div class="card"><div class="val" style="color:${color}">${res}</div><div class="lbl">Resultado</div></div>
+      </div>
+      <h3>Fallas Reportadas</h3>
+      <ul>${datos.itemsFail.length ? datos.itemsFail.map(i=>`<li>${i}</li>`).join('') : '<li>Sin fallas</li>'}</ul>
+      <h3>Observaciones</h3><p>${datos.obs || 'Ninguna'}</p>
+    </div></body></html>`;
+  return crearPDF(html, `Insp_${id}.pdf`);
+}
 
-function apiGetMetricasAvanzadas(periodo) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const combustible = ss.getSheetByName('COMBUSTIBLE').getDataRange().getValues().slice(1);
-  const viajes = ss.getSheetByName('VIAJES').getDataRange().getValues().slice(1);
-  const ots = ss.getSheetByName('ORDENES_TRABAJO').getDataRange().getValues().slice(1);
-  const unidades = ss.getSheetByName('UNIDADES').getDataRange().getValues().slice(1);
+// --- 10. FUNCIONES BI (DATA PARA FRONTEND) ---
+function getReporteBiOperativo(ini, fin, choferPin) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const vData = ss.getSheetByName('VIAJES').getDataRange().getValues();
+  const dIni = new Date(ini), dFin = new Date(fin); 
+  dFin.setHours(23,59,59);
   
-  // Determinar período
-  const hoy = new Date();
-  let inicio;
-  switch(periodo) {
-    case 'semana':
-      inicio = new Date(hoy.getTime() - 7 * 24 * 60 * 60 * 1000);
+  let result = [];
+  for(let i=1; i<vData.length; i++) {
+    const fecha = new Date(vData[i][3]);
+    if(fecha >= dIni && fecha <= dFin) {
+      // Filtro por chofer si aplica
+      if(choferPin && choferPin !== 'TODOS' && String(vData[i][2]) !== String(choferPin)) continue;
+      
+      const kmSalida = Number(vData[i][4]) || 0;
+      const kmEntrada = Number(vData[i][9]) || 0;
+      const kmRecorrido = kmEntrada > kmSalida ? kmEntrada - kmSalida : 0;
+      
+      result.push({
+        fecha: fecha.toLocaleDateString(),
+        unidad: vData[i][1],
+        chofer: obtenerNombre(vData[i][2]),
+        motivo: vData[i][5] || 'Sin destino',
+        kmRecorrido: kmRecorrido,
+        estado: vData[i][11]
+      });
+    }
+  }
+  return result;
+}
+
+function getReporteBiCombustible(ini, fin, unidadFiltro) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const dSheet = ss.getSheetByName('DIESEL');
+  if(!dSheet) return [];
+  
+  const dData = dSheet.getDataRange().getValues();
+  const dIni = new Date(ini), dFin = new Date(fin); 
+  dFin.setHours(23,59,59);
+  
+  // Obtener odÃ³metros para calcular rendimiento
+  const uSheet = ss.getSheetByName('UNIDADES');
+  let odometros = {};
+  if(uSheet) {
+    const uData = uSheet.getDataRange().getValues();
+    for(let i=1; i<uData.length; i++) {
+      odometros[uData[i][0]] = Number(uData[i][4]) || 0;
+    }
+  }
+  
+  let result = [];
+  let prevKm = {};
+  
+  for(let i=1; i<dData.length; i++) {
+    const fecha = new Date(dData[i][0]);
+    if(fecha >= dIni && fecha <= dFin) {
+      const unidad = dData[i][1];
+      
+      // Filtro por unidad si aplica
+      if(unidadFiltro && unidadFiltro !== 'TODAS' && unidad !== unidadFiltro) continue;
+      
+      const litros = Number(dData[i][3]) || 0;
+      const costo = Number(dData[i][4]) || 0;
+      const kmActual = Number(dData[i][5]) || 0;
+      
+      // Calcular rendimiento (km/litro)
+      let rend = 'N/A';
+      if(prevKm[unidad] && kmActual > prevKm[unidad] && litros > 0) {
+        rend = ((kmActual - prevKm[unidad]) / litros).toFixed(2);
+      }
+      prevKm[unidad] = kmActual;
+      
+      result.push({
+        fecha: fecha.toLocaleDateString(),
+        unidad: unidad,
+        litros: litros,
+        costo: costo,
+        km: kmActual,
+        rend: rend
+      });
+    }
+  }
+  return result;
+}
+
+function getReporteBiAnalytics(ini, fin) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const uData = ss.getSheetByName('UNIDADES').getDataRange().getValues();
+  const dData = ss.getSheetByName('DIESEL').getDataRange().getValues();
+  let total=0, disp=0, taller=0, gasto=0;
+  for(let i=1; i<uData.length; i++){
+    total++;
+    if(uData[i][3]=='DISPONIBLE'||uData[i][3]=='EN_VIAJE') disp++;
+    if(uData[i][3]=='MANTENIMIENTO') taller++;
+  }
+  const dIni=new Date(ini), dFin=new Date(fin); dFin.setHours(23,59,59);
+  for(let i=1; i<dData.length; i++){
+    let f=new Date(dData[i][0]);
+    if(f>=dIni && f<=dFin) gasto += Number(dData[i][4]);
+  }
+  return { total, disp, taller, indisponibilidad: total>0?((taller/total)*100).toFixed(1):0, gastoComb:gasto };
+}
+
+function generarPDFReporteOperativo(ini, fin, choferPin) {
+  const data = getReporteBiOperativo(ini, fin, choferPin);
+  const logo = getAvaLogo();
+  let html = `<!DOCTYPE html><html><head>${getEstiloPremium()}</head><body>
+    <div class="header"><div class="top"><img src="${logo}" class="logo"><div style="text-align:right"><div class="title">OPERATIVO</div><div>${ini} - ${fin}</div></div></div></div>
+    <div style="padding:40px;">
+      <table><thead><tr><th>Fecha</th><th>Unidad</th><th>Chofer</th><th>Motivo</th><th>KM</th></tr></thead><tbody>
+      ${data.map(r => `<tr><td>${r.fecha}</td><td>${r.unidad}</td><td>${r.chofer}</td><td>${r.motivo}</td><td>${r.kmRecorrido}</td></tr>`).join('')}
+      </tbody></table>
+    </div></body></html>`;
+  return {exito:true, url: crearPDF(html, `Operativo_${ini}.pdf`)};
+}
+
+function generarPDFReporteCombustible(ini, fin, unidad) {
+  const data = getReporteBiCombustible(ini, fin, unidad);
+  const logo = getAvaLogo();
+  let html = `<!DOCTYPE html><html><head>${getEstiloPremium()}</head><body>
+    <div class="header"><div class="top"><img src="${logo}" class="logo"><div style="text-align:right"><div class="title">COMBUSTIBLE</div><div>${ini} - ${fin}</div></div></div></div>
+    <div style="padding:40px;">
+      <table><thead><tr><th>Fecha</th><th>Unidad</th><th>Litros</th><th>Costo</th><th>Rend (Km/L)</th></tr></thead><tbody>
+      ${data.map(r => `<tr><td>${r.fecha}</td><td>${r.unidad}</td><td>${r.litros}</td><td>$${r.costo}</td><td><strong>${r.rend}</strong></td></tr>`).join('')}
+      </tbody></table>
+    </div></body></html>`;
+  return {exito:true, url: crearPDF(html, `Combustible_${ini}.pdf`)};
+}
+
+// ============== MÃ“DULO TALLER ENTERPRISE RESTAURADO ==============
+
+function obtenerAgendaTaller() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const s = ss.getSheetByName('ORDENES_TRABAJO');
+  if(!s) return [];
+  const data = s.getDataRange().getValues();
+  let agenda = [];
+  // FOLIO, DATE, UNIT, ACT, TYPE, STATUS...
+  for(let i=1; i<data.length; i++) {
+    if(data[i][5] !== 'CERRADA') { // ESTADO
+       agenda.push({
+         folio: data[i][0],
+         fecha: data[i][1] ? new Date(data[i][1]).toLocaleDateString() : '',
+         unidad: data[i][2],
+         actividad: data[i][3],
+         tipo: data[i][4],
+         estado: data[i][5]
+       });
+    }
+  }
+  return agenda;
+}
+
+function obtenerSolicitudesPendientes() {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    let s = ss.getSheetByName('SOLICITUDES');
+    if(!s) return []; // Si no existe, retorna vacio
+    
+    // Si la hoja estÃ¡ vacÃ­a o solo tiene headers, retornar vacÃ­o
+    if(s.getLastRow() <= 1) return [];
+
+    const data = s.getDataRange().getValues();
+    let sols = [];
+    for(let i=1; i<data.length; i++) {
+        const estado = data[i][7];
+        // Taller ve las que Admin AUTORIZÃ“ o que estÃ¡n PENDIENTES
+        if(estado === 'PENDIENTE' || estado === 'AUTORIZADA') {
+            sols.push({
+                folio: data[i][1],
+                ot: data[i][0], // ID
+                unidad: data[i][2],
+                estado: estado,
+                insumos: data[i][4], 
+                refacciones: '' 
+            });
+        }
+    }
+    return sols;
+}
+
+function obtenerKPIsTaller() {
+    const agenda = obtenerAgendaTaller();
+    let prog = 0, espera = 0, proc = 0, cerradas = 0;
+    agenda.forEach(a => {
+        if(a.estado === 'PROGRAMADA') prog++;
+        if(a.estado === 'ESPERA_MAT') espera++;
+        if(a.estado === 'EN_PROCESO') proc++;
+    });
+    
+    // Para cerradas HOY
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const s = ss.getSheetByName('ORDENES_TRABAJO');
+    if(s) {
+        const data = s.getDataRange().getValues();
+        const hoy = new Date();
+        for(let i=1; i<data.length; i++) {
+            if(data[i][5] === 'CERRADA') {
+                const fCierre = new Date(data[i][7]); // Usando fecha PROG/CIERRE
+                if(fCierre.getDate() == hoy.getDate() && fCierre.getMonth() == hoy.getMonth() && fCierre.getFullYear() == hoy.getFullYear()) {
+                    cerradas++;
+                }
+            }
+        }
+    }
+    return { programadas: prog, esperaMat: espera, enProceso: proc, cerradasHoy: cerradas };
+}
+
+function guardarProgramacion(ot) {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    
+    // 1. Guardar en ORDENES_TRABAJO (Estado inicial: POR_AUTORIZAR)
+    let s = ss.getSheetByName('ORDENES_TRABAJO');
+    if(!s) { s = ss.insertSheet('ORDENES_TRABAJO'); s.appendRow(['FOLIO','FECHA','UNIDAD','ACTIVIDAD','TIPO','ESTADO','TECNICO','FECHA_PROG','INSUMOS','REFACCIONES','DIAGNOSTICO','COSTO','HORAS']); }
+    
+    const folio = 'OT-' + new Date().getTime();
+    s.appendRow([
+        folio,
+        new Date(),
+        ot.unidad,
+        ot.actividad,
+        ot.tipo,
+        'POR_AUTORIZAR', // Estado inicial para que Admin apruebe
+        ot.tecnico,
+        ot.fechaProg,
+        ot.insumos,
+        ot.refacciones,
+        '', 0, 0
+    ]);
+    
+    // 2. Guardar en SOLICITUDES para que Admin la vea
+    let sSol = ss.getSheetByName('SOLICITUDES');
+    if(!sSol) {
+        sSol = ss.insertSheet('SOLICITUDES');
+        sSol.appendRow(['ID', 'FOLIO', 'UNIDAD', 'TIPO', 'DESCRIPCION', 'SOLICITANTE', 'FECHA', 'ESTADO', 'MOTIVO_RECHAZO', 'FECHA_CIERRE', 'FECHA_ENTREGA', 'TIEMPO_TOTAL']);
+    }
+    
+    // ID Solicitud = OT (para vincularlas)
+    const idSol = folio; 
+    sSol.appendRow([
+        idSol,              // ID
+        folio,             // FOLIO
+        ot.unidad,         // UNIDAD
+        ot.tipo,           // TIPO
+        ot.actividad + (ot.insumos ? ` | Insumos: ${ot.insumos}` : ''), // DESCRIPCION
+        'TALLER',          // SOLICITANTE
+        new Date(),        // FECHA
+        'PENDIENTE',       // ESTADO
+        '', '', '', ''     // Resto vacio
+    ]);
+
+    return { exito: true, folio: folio };
+}
+
+// ... (otras funciones sin cambios) ...
+
+// Actualizar Admin para reflejar cambios en OT
+function cambiarEstadoSolicitud(id, nuevoEstado, motivo) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const s = ss.getSheetByName('SOLICITUDES');
+  if(!s) return { exito: false, error: 'Hoja SOLICITUDES no encontrada' };
+  
+  let otRef = '';
+  
+  // 1. Actualizar Solicitud
+  const data = s.getDataRange().getValues();
+  let encontrada = false;
+  for(let i=1; i<data.length; i++) {
+    if(data[i][0] === id) {
+      s.getRange(i+1, 8).setValue(nuevoEstado); // ESTADO
+      if(motivo) s.getRange(i+1, 9).setValue(motivo); // MOTIVO_RECHAZO
+      otRef = data[i][1]; // El Folio es la referencia a la OT
+      encontrada = true;
       break;
-    case 'anio':
-      inicio = new Date(hoy.getFullYear(), 0, 1);
-      break;
-    case 'mes':
-    default:
-      inicio = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
-  }
-  
-  // Filtrar datos por período
-  let viajesPeriodo = viajes.filter(v => v[1] && new Date(v[1]) >= inicio);
-  let combustiblePeriodo = combustible.filter(c => c[1] && new Date(c[1]) >= inicio);
-  let otsPeriodo = ots.filter(o => o[1] && new Date(o[1]) >= inicio);
-  
-  // Calcular métricas de viajes
-  const totalKm = viajesPeriodo.reduce((acc, v) => {
-    const kmViaje = (v[10] || 0) - (v[4] || 0);
-    return acc + (kmViaje > 0 ? kmViaje : 0);
-  }, 0);
-  
-  const viajesCompletados = viajesPeriodo.filter(v => v[13] === 'CERRADO').length;
-  const viajesEnRuta = viajesPeriodo.filter(v => v[13] === 'EN_RUTA').length;
-  
-  // Calcular métricas de combustible
-  const totalLitros = combustiblePeriodo.reduce((acc, c) => acc + (parseFloat(c[4]) || 0), 0);
-  const totalGastoCombustible = combustiblePeriodo.reduce((acc, c) => acc + (parseFloat(c[6]) || 0), 0);
-  const rendimientoPromedio = totalLitros > 0 ? (totalKm / totalLitros) : 0;
-  
-  // Calcular métricas de mantenimiento
-  const otsCerradas = otsPeriodo.filter(o => o[6] === 'CERRADA');
-  const totalGastoMtto = otsCerradas.reduce((acc, o) => acc + (parseFloat(o[9]) || 0), 0);
-  const otsAbiertas = otsPeriodo.filter(o => o[6] !== 'CERRADA').length;
-  
-  // Estadísticas de flota
-  const flotaTotal = unidades.filter(u => u[4] !== 'BAJA').length;
-  const flotaDisponible = unidades.filter(u => u[4] === 'DISPONIBLE').length;
-  const flotaEnRuta = unidades.filter(u => u[4] === 'EN_RUTA').length;
-  const flotaMantenimiento = unidades.filter(u => u[4] === 'MANTENIMIENTO').length;
-  
-  return {
-    exito: true,
-    periodo: {
-      tipo: periodo || 'mes',
-      inicio: inicio.toISOString(),
-      fin: hoy.toISOString()
-    },
-    flota: {
-      total: flotaTotal,
-      disponible: flotaDisponible,
-      enRuta: flotaEnRuta,
-      mantenimiento: flotaMantenimiento,
-      utilizacion: flotaTotal > 0 ? ((flotaEnRuta / flotaTotal) * 100).toFixed(1) : 0
-    },
-    viajes: {
-      total: viajesPeriodo.length,
-      completados: viajesCompletados,
-      enRuta: viajesEnRuta,
-      kmTotales: totalKm,
-      promedioKmViaje: viajesCompletados > 0 ? (totalKm / viajesCompletados).toFixed(1) : 0
-    },
-    combustible: {
-      litros: totalLitros.toFixed(2),
-      gastoTotal: totalGastoCombustible.toFixed(2),
-      cargas: combustiblePeriodo.length,
-      rendimientoPromedio: rendimientoPromedio.toFixed(2),
-      costoPromedioPorLitro: combustiblePeriodo.length > 0 
-        ? (totalGastoCombustible / totalLitros).toFixed(2) : 0
-    },
-    mantenimiento: {
-      otsCreadas: otsPeriodo.length,
-      otsCerradas: otsCerradas.length,
-      otsAbiertas: otsAbiertas,
-      gastoTotal: totalGastoMtto.toFixed(2),
-      costoPromedioOT: otsCerradas.length > 0 
-        ? (totalGastoMtto / otsCerradas.length).toFixed(2) : 0
-    },
-    costos: {
-      combustible: totalGastoCombustible.toFixed(2),
-      mantenimiento: totalGastoMtto.toFixed(2),
-      total: (totalGastoCombustible + totalGastoMtto).toFixed(2),
-      costoPorKm: totalKm > 0 
-        ? ((totalGastoCombustible + totalGastoMtto) / totalKm).toFixed(2) : 0
-    }
-  };
-}
-
-function apiGetTopConsumo(limite) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const combustible = ss.getSheetByName('COMBUSTIBLE').getDataRange().getValues().slice(1);
-  const unidades = ss.getSheetByName('UNIDADES').getDataRange().getValues().slice(1);
-  
-  const consumoPorUnidad = {};
-  combustible.forEach(c => {
-    const unidadId = c[2];
-    if (!consumoPorUnidad[unidadId]) {
-      consumoPorUnidad[unidadId] = { litros: 0, gasto: 0, cargas: 0 };
-    }
-    consumoPorUnidad[unidadId].litros += (parseFloat(c[4]) || 0);
-    consumoPorUnidad[unidadId].gasto += (parseFloat(c[6]) || 0);
-    consumoPorUnidad[unidadId].cargas++;
-  });
-  
-  // Agregar info de unidad
-  const ranking = Object.entries(consumoPorUnidad)
-    .map(([id, data]) => {
-      const unidad = unidades.find(u => u[0] === id);
-      return { 
-        unidadId: id, 
-        modelo: unidad ? unidad[2] : 'Desconocido',
-        tipo: unidad ? unidad[1] : '',
-        ...data 
-      };
-    })
-    .sort((a, b) => b.litros - a.litros)
-    .slice(0, limite || 5);
-  
-  return { exito: true, ranking };
-}
-
-function apiGetHistorialUnidad(unidadId) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  
-  // Viajes
-  const viajes = ss.getSheetByName('VIAJES').getDataRange().getValues().slice(1)
-    .filter(v => String(v[2]) === String(unidadId))
-    .map(v => ({
-      tipo: 'viaje',
-      fecha: v[1],
-      detalle: `${v[6]} - ${v[7]}`,
-      estado: v[13]
-    }));
-  
-  // OTs
-  const ots = ss.getSheetByName('ORDENES_TRABAJO').getDataRange().getValues().slice(1)
-    .filter(o => String(o[2]) === String(unidadId))
-    .map(o => ({
-      tipo: 'ot',
-      fecha: o[1],
-      detalle: `${o[0]}: ${o[5]}`,
-      estado: o[6]
-    }));
-  
-  // Cargas combustible
-  const cargas = ss.getSheetByName('COMBUSTIBLE').getDataRange().getValues().slice(1)
-    .filter(c => String(c[2]) === String(unidadId))
-    .map(c => ({
-      tipo: 'combustible',
-      fecha: c[1],
-      detalle: `${c[4]} litros - $${c[6]}`,
-      estado: 'COMPLETADO'
-    }));
-  
-  // Combinar y ordenar por fecha
-  const historial = [...viajes, ...ots, ...cargas]
-    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
-    .slice(0, 50);
-  
-  return { exito: true, historial, total: historial.length };
-}
-
-// ==================================================
-// FASE 6: OPTIMIZACIÓN Y RENDIMIENTO
-// ==================================================
-
-function getCachedData(key, fetchFunction, ttl) {
-  const cache = CacheService.getScriptCache();
-  let data = cache.get(key);
-  
-  if (data) {
-    try {
-      return JSON.parse(data);
-    } catch(e) {
-      // Si hay error parseando, regenerar
     }
   }
   
-  data = fetchFunction();
+  if(!encontrada) return { exito: false, error: 'Solicitud no encontrada' };
   
-  // Solo cachear si los datos son menores a 100KB
-  const jsonData = JSON.stringify(data);
-  if (jsonData.length < 100000) {
-    cache.put(key, jsonData, ttl || 300);
+  // 2. Sincronizar con OT (Si existe)
+  if(otRef) {
+      const sOT = ss.getSheetByName('ORDENES_TRABAJO');
+      if(sOT) {
+          const dOT = sOT.getDataRange().getValues();
+          for(let i=1; i<dOT.length; i++) {
+              if(dOT[i][0] === otRef) {
+                  // Si Admin AUTORIZA, la OT pasa a PROGRAMADA (lista para trabajar)
+                  // Si Admin RECHAZA, la OT pasa a CANCELADA/RECHAZADA
+                  let estadoOT = 'PENDIENTE';
+                  if(nuevoEstado === 'AUTORIZADA') estadoOT = 'PROGRAMADA';
+                  if(nuevoEstado === 'RECHAZADA') estadoOT = 'RECHAZADA';
+                  
+                  sOT.getRange(i+1, 6).setValue(estadoOT);
+                  break;
+              }
+          }
+      }
   }
   
-  return data;
+  return { exito: true };
 }
 
-function apiGetDashboardDataCached() {
-  return getCachedData('dashboard_data', apiGetDashboardData, 60);
+function obtenerDetalleOT(folio) {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const s = ss.getSheetByName('ORDENES_TRABAJO');
+    if(!s) return null;
+    const data = s.getDataRange().getValues();
+    for(let i=1; i<data.length; i++) {
+        if(data[i][0] === folio) {
+            return {
+                folio: data[i][0],
+                unidad: data[i][2],
+                actividad: data[i][3],
+                tipo: data[i][4],
+                estado: data[i][5],
+                tecnico: data[i][6],
+                diagnostico: data[i][10],
+                costo: data[i][11],
+                horas: data[i][12]
+            };
+        }
+    }
+    return null;
 }
 
-function limpiarCache() {
-  const cache = CacheService.getScriptCache();
-  cache.removeAll(['dashboard_data', 'metricas_mes']);
-  return { exito: true, mensaje: 'Caché limpiado' };
+function actualizarEstadoOT(folio, estado) {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const s = ss.getSheetByName('ORDENES_TRABAJO');
+    if(!s) return { exito: false };
+    const data = s.getDataRange().getValues();
+    for(let i=1; i<data.length; i++) {
+        if(data[i][0] === folio) {
+            s.getRange(i+1, 6).setValue(estado);
+            return { exito: true };
+        }
+    }
+    return { exito: false };
 }
 
-// Actualización en lote para mejor rendimiento
-function actualizarMultiplesUnidades(updates) {
-  if (!Array.isArray(updates) || updates.length === 0) {
-    return { exito: false, error: 'No hay actualizaciones' };
+function cerrarOrdenTrabajo(folio, diag, costo, horas) {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const s = ss.getSheetByName('ORDENES_TRABAJO');
+    if(!s) return { exito: false };
+    const data = s.getDataRange().getValues();
+    for(let i=1; i<data.length; i++) {
+        if(data[i][0] === folio) {
+            s.getRange(i+1, 6).setValue('CERRADA');
+            s.getRange(i+1, 11).setValue(diag);
+            s.getRange(i+1, 12).setValue(costo);
+            s.getRange(i+1, 13).setValue(horas);
+            
+            // Liberar unidad
+            const un = data[i][2];
+            try{
+                const su = ss.getSheetByName('UNIDADES');
+                const du = su.getDataRange().getValues();
+                for(let j=1; j<du.length; j++) {
+                    if(du[j][0] === un) {
+                         // Buscar col estado (4ta columna index 3)
+                         su.getRange(j+1, 4).setValue('DISPONIBLE');
+                         break;
+                    }
+                }
+            }catch(e){}
+            
+            // Generar PDF (simulado url por ahora)
+            // const pdf = generarPDFOrdenTrabajo(folio); 
+            
+            return { exito: true, pdfUrl: '' }; 
+        }
+    }
+    return { exito: false };
+}
+
+function obtenerHistorialOTsUnidad(unidadId) {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const s = ss.getSheetByName('ORDENES_TRABAJO');
+    if(!s) return [];
+    const data = s.getDataRange().getValues();
+    let hist = [];
+    for(let i=1; i<data.length; i++) {
+        if(data[i][2] === unidadId) {
+            hist.push({
+                folio: data[i][0],
+                fecha: data[i][1] ? new Date(data[i][1]).toLocaleDateString() : '',
+                tipo: data[i][4],
+                actividad: data[i][3],
+                diagnostico: data[i][10],
+                estado: data[i][5],
+                costo: data[i][11],
+                horas: data[i][12],
+                pdfUrl: ''
+            });
+        }
+    }
+    return hist.reverse(); 
+}
+
+function obtenerCostosUnidad(unidadId) {
+    const hist = obtenerHistorialOTsUnidad(unidadId);
+    let totalCosto = 0, totalHoras = 0;
+    hist.forEach(h => {
+        totalCosto += (Number(h.costo) || 0);
+        totalHoras += (Number(h.horas) || 0);
+    });
+    return {
+        totalCosto,
+        totalOTs: hist.length,
+        totalHoras,
+        lista: hist
+    };
+}
+
+function obtenerPreventivosUnidad(unidadId) {
+    // Buscar prÃ³ximo preventivo PROGRAMADO
+    const opts = obtenerAgendaTaller().filter(o => o.unidad === unidadId && o.tipo === 'PREVENTIVO' && o.estado === 'PROGRAMADA');
+    if(opts.length > 0) return { proximo: opts[0] };
+    return { proximo: null };
+}
+
+function obtenerHistorialOTsCerradas() {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const s = ss.getSheetByName('ORDENES_TRABAJO');
+    if(!s) return [];
+    const data = s.getDataRange().getValues();
+    let hist = [];
+    for(let i=1; i<data.length; i++) {
+        if(data[i][5] === 'CERRADA') {
+            hist.push({
+                folio: data[i][0],
+                unidad: data[i][2],
+                actividad: data[i][3],
+                fechaCierre: data[i][1] ? new Date(data[i][1]).toLocaleDateString() : '',
+                estado: 'CERRADA',
+                pdfUrl: ''
+            });
+        }
+    }
+    return hist.reverse().slice(0, 50);
+}
+
+function guardarOTHistorica(ot) {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    let s = ss.getSheetByName('ORDENES_TRABAJO');
+    if(!s) {
+       // Crear si no existe
+       s = ss.insertSheet('ORDENES_TRABAJO'); 
+       s.appendRow(['FOLIO','FECHA','UNIDAD','ACTIVIDAD','TIPO','ESTADO','TECNICO','FECHA_PROG','INSUMOS','REFACCIONES','DIAGNOSTICO','COSTO','HORAS']); 
+    }
+    
+    // Insertar OT histÃ³rica como CERRADA
+    s.appendRow([
+        ot.folio,
+        new Date(ot.fecha), // Fecha original
+        ot.unidad,
+        ot.actividad,
+        ot.tipo,
+        'CERRADA',
+        ot.tecnico,
+        new Date(ot.fecha), // Fecha prog = fecha
+        '', // Insumos
+        '', // Refacciones
+        ot.diagnostico,
+        ot.costo,
+        ot.horas
+    ]);
+    return { exito: true };
+}
+
+function generarPDFOrdenTrabajo(folio){
+    return { exito: true, url: '' }; // Stub por ahora
+}
+
+// ============== MÃ“DULO ADMIN - GESTIÃ“N DE SOLICITUDES (CORREGIDO) ==============
+function obtenerSolicitudesAdmin() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let s = ss.getSheetByName('SOLICITUDES');
+  if(!s) {
+    s = ss.insertSheet('SOLICITUDES');
+    s.getRange(1, 1, 1, 12).setValues([['ID', 'FOLIO', 'UNIDAD', 'TIPO', 'DESCRIPCION', 'SOLICITANTE', 'FECHA', 'ESTADO', 'MOTIVO_RECHAZO', 'FECHA_CIERRE', 'FECHA_ENTREGA', 'TIEMPO_TOTAL']]);
   }
   
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('UNIDADES');
-  const data = sheet.getDataRange().getValues();
-  let actualizados = 0;
+  const data = s.getDataRange().getValues();
+  let solicitudes = [];
+  let pendientes = 0, autorizadas = 0, entregadas = 0, rechazadas = 0;
   
-  updates.forEach(update => {
-    for (let i = 1; i < data.length; i++) {
-      if (String(data[i][0]) === String(update.id)) {
-        const row = i + 1;
-        const valores = [[
-          update.tipo || data[i][1],
-          update.modelo || data[i][2],
-          update.placas || data[i][3],
-          update.estado || data[i][4],
-          update.odometro || data[i][5],
-          update.combustible || data[i][6],
-          update.foto || data[i][7]
-        ]];
-        sheet.getRange(row, 2, 1, 7).setValues(valores);
-        actualizados++;
+  for(let i=1; i<data.length; i++) {
+    const estado = data[i][7] || 'PENDIENTE';
+    
+    // Contar KPIs
+    if(estado === 'PENDIENTE') pendientes++;
+    else if(estado === 'AUTORIZADA') autorizadas++;
+    else if(estado === 'EN_PROCESO') autorizadas++;
+    else if(estado === 'ENTREGADA') entregadas++;
+    else if(estado === 'RECHAZADA') rechazadas++;
+    
+    // Calcular tiempo de entrega si estÃ¡ en proceso
+    let tiempoEntrega = '';
+    if(estado === 'EN_PROCESO' && data[i][9]) {
+      const inicio = new Date(data[i][9]);
+      const ahora = new Date();
+      const diff = ahora - inicio;
+      const horas = Math.floor(diff / 3600000);
+      const minutos = Math.floor((diff % 3600000) / 60000);
+      tiempoEntrega = `${horas}h ${minutos}m`;
+    }
+    
+    solicitudes.push({
+      id: data[i][0],
+      folio: data[i][1],
+      unidad: data[i][2],
+      tipo: data[i][3],
+      descripcion: data[i][4],
+      solicitante: data[i][5],
+      fecha: data[i][6] ? new Date(data[i][6]).toLocaleDateString() : '',
+      estado: estado,
+      tiempoEntrega: tiempoEntrega || data[i][11]
+    });
+  }
+  
+  // Ordenar por fecha descendente
+  solicitudes.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+  
+  return { solicitudes, pendientes, autorizadas, entregadas, rechazadas };
+}
+
+// Nota: cambiarEstadoSolicitud ya estÃ¡ definida arriba correctamente vinculada.
+// No la redefinimos aquÃ­ para evitar duplicados, o la ponemos como alias si fuera necesario, 
+// pero JS tomarÃ­a la Ãºltima. La de arriba es la BUENA (que actualiza OT).
+// AsÃ­ que borramos la vieja.
+
+function cerrarSolicitudAdmin(id) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const s = ss.getSheetByName('SOLICITUDES');
+  if(!s) return { exito: false, error: 'Hoja SOLICITUDES no encontrada' };
+  
+  const data = s.getDataRange().getValues();
+  for(let i=1; i<data.length; i++) {
+    if(data[i][0] === id) {
+      // Cambiar estado a EN_PROCESO y registrar fecha inicio
+      s.getRange(i+1, 8).setValue('EN_PROCESO');
+      s.getRange(i+1, 10).setValue(new Date());
+      
+      const otRef = data[i][1];
+      
+      // Actualizar OT existente
+      if(otRef){
+          const sOT = ss.getSheetByName('ORDENES_TRABAJO');
+          if(sOT){
+              const dOT = sOT.getDataRange().getValues();
+              for(let j=1; j<dOT.length; j++){
+                  if(dOT[j][0] === otRef){
+                      sOT.getRange(j+1, 6).setValue('EN_PROCESO');
+                      // Fecha inicio real (si hay columna para eso, ej col 9 refacciones o una nueva)
+                      // Pero con cambiar estado basta
+                      break;
+                  }
+              }
+          }
+      }
+      
+      return { exito: true, folioOT: otRef };
+    }
+  }
+  return { exito: false, error: 'Solicitud no encontrada' };
+}
+
+function marcarSolicitudEntregada(id) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const s = ss.getSheetByName('SOLICITUDES');
+  if(!s) return { exito: false, error: 'Hoja SOLICITUDES no encontrada' };
+  
+  const data = s.getDataRange().getValues();
+  for(let i=1; i<data.length; i++) {
+    if(data[i][0] === id) {
+      const fechaCierre = data[i][9] ? new Date(data[i][9]) : new Date(); // Fecha inicio del timer
+      const fechaEntrega = new Date();
+      
+      // Calcular tiempo total
+      let tiempoTotal = 'N/A';
+        const diff = fechaEntrega - fechaCierre;
+        const horas = Math.floor(diff / 3600000);
+        const minutos = Math.floor((diff % 3600000) / 60000);
+        tiempoTotal = `${horas}h ${minutos}m`;
+      
+      // Actualizar Solicitud
+      s.getRange(i+1, 8).setValue('ENTREGADA');
+      s.getRange(i+1, 11).setValue(fechaEntrega);
+      s.getRange(i+1, 12).setValue(tiempoTotal);
+      
+      // Actualizar OT (Opcional, si Taller ya lo cerrÃ³ a CERRADA, esto no cambia mucho, 
+      // pero podrÃ­amos poner un flag de 'ENTREGADA_CLIENTE')
+      
+      return { exito: true, tiempoTotal: tiempoTotal };
+    }
+  }
+  return { exito: false, error: 'Solicitud no encontrada' };
+}
+
+function SETUP() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  ['USUARIOS','UNIDADES','VIAJES','INSPECCIONES','DIESEL','ORDENES_TRABAJO','SOLICITUDES','KARDEX_EVENTOS','KARDEX_TRAZA'].forEach(n => { if(!ss.getSheetByName(n)) ss.insertSheet(n); });
+}
+
+// ============================================================
+// FUNCIONES DE CHOFER - 4 MODALES FUNCIONALES
+// ============================================================
+
+/**
+ * MODAL 1: INSPECCIÓN PRE-VIAJE
+ * Registra inspección de 5 puntos antes de salir
+ */
+function registrarInspeccion(datos) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let s = ss.getSheetByName('INSPECCIONES');
+  
+  if(!s) {
+    s = ss.insertSheet('INSPECCIONES');
+    s.appendRow(['ID', 'FECHA', 'HORA', 'CHOFER_PIN', 'UNIDAD', 'ITEMS_OK', 'ITEMS_FAIL', 'OBSERVACIONES', 'RESULTADO', 'PDF_URL']);
+  }
+  
+  const id = 'INSP-' + new Date().getTime();
+  const fecha = new Date();
+  const hora = Utilities.formatDate(fecha, Session.getScriptTimeZone(), 'HH:mm:ss');
+  const resultado = (datos.itemsFail && datos.itemsFail.length > 0) ? 'RECHAZADO' : 'APROBADO';
+  
+  s.appendRow([
+    id,
+    fecha,
+    hora,
+    datos.pin,
+    datos.unidad,
+    JSON.stringify(datos.itemsOk || []),
+    JSON.stringify(datos.itemsFail || []),
+    datos.obs || '',
+    resultado,
+    ''
+  ]);
+  
+  registrarTrazabilidad(datos.unidad, id, 'INSPECCION', `Inspección ${resultado}`, datos.pin);
+  
+  return { exito: true, resultado: resultado, mensaje: `Inspección ${resultado}` };
+}
+
+/**
+ * MODAL 2: REGISTRO DE SALIDA
+ * Registra salida de viaje y cambia estado de unidad
+ */
+function procesarSalida(datos) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let s = ss.getSheetByName('VIAJES');
+  
+  if(!s) {
+    s = ss.insertSheet('VIAJES');
+    s.appendRow(['ID', 'FECHA', 'UNIDAD', 'CHOFER_PIN', 'KM_SALIDA', 'DESTINO', 'HORA_SALIDA', 'KM_LLEGADA', 'HORA_LLEGADA', 'FALLA', 'DESC_FALLA', 'ESTADO']);
+  }
+  
+  const id = 'VIA-' + new Date().getTime();
+  const fecha = new Date();
+  const hora = Utilities.formatDate(fecha, Session.getScriptTimeZone(), 'HH:mm:ss');
+  
+  s.appendRow([
+    id,
+    fecha,
+    datos.unidad,
+    datos.pin,
+    datos.km,
+    datos.motivo,
+    hora,
+    '',
+    '',
+    '',
+    '',
+    'ABIERTO'
+  ]);
+  
+  actualizarEstadoUnidad(datos.unidad, 'EN_VIAJE');
+  registrarTrazabilidad(datos.unidad, id, 'SALIDA', `Salida: ${datos.motivo}`, datos.pin);
+  
+  return { exito: true, mensaje: 'Salida registrada exitosamente' };
+}
+
+/**
+ * MODAL 3: REGISTRO DE ENTRADA
+ * Cierra viaje, actualiza odómetro y registra fallas
+ */
+function procesarEntrada(datos) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const s = ss.getSheetByName('VIAJES');
+  
+  if(!s) return { exito: false, error: 'Hoja VIAJES no encontrada' };
+  
+  const data = s.getDataRange().getValues();
+  const hora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'HH:mm:ss');
+  
+  // Buscar último viaje ABIERTO de esta unidad
+  for(let i = data.length - 1; i > 0; i--) {
+    if(data[i][2] === datos.unidad && data[i][11] === 'ABIERTO') {
+      const row = i + 1;
+      
+      // Actualizar datos de entrada
+      s.getRange(row, 8).setValue(datos.km);  // KM_LLEGADA
+      s.getRange(row, 9).setValue(hora);      // HORA_LLEGADA
+      s.getRange(row, 10).setValue(datos.falla || 'NO');  // FALLA
+      s.getRange(row, 11).setValue(datos.descFalla || '');  // DESC_FALLA
+      s.getRange(row, 12).setValue('CERRADO');  // ESTADO
+      
+      // Actualizar odómetro de la unidad
+      const sU = ss.getSheetByName('UNIDADES');
+      if(sU) {
+        const uData = sU.getDataRange().getValues();
+        for(let j = 1; j < uData.length; j++) {
+          if(uData[j][0] === datos.unidad) {
+            sU.getRange(j + 1, 5).setValue(datos.km);  // ODOMETRO
+            break;
+          }
+        }
+      }
+      
+      // Si reportó falla, cambiar estado a MANTENIMIENTO
+      if(datos.falla === 'SI') {
+        actualizarEstadoUnidad(datos.unidad, 'MANTENIMIENTO');
+        registrarTrazabilidad(datos.unidad, data[i][0], 'FALLA', datos.descFalla || 'Falla reportada', datos.pin);
+      } else {
+        actualizarEstadoUnidad(datos.unidad, 'DISPONIBLE');
+      }
+      
+      registrarTrazabilidad(datos.unidad, data[i][0], 'ENTRADA', 'Entrada registrada', datos.pin);
+      
+      return { exito: true, mensaje: 'Entrada registrada exitosamente' };
+    }
+  }
+  
+  return { exito: false, error: 'No se encontró viaje abierto para esta unidad' };
+}
+
+/**
+ * MODAL 4: REGISTRO DE DIESEL
+ * Registra carga de combustible con foto de ticket
+ */
+function registrarDiesel(datos, fotoBase64) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let s = ss.getSheetByName('DIESEL');
+  
+  if(!s) {
+    s = ss.insertSheet('DIESEL');
+    s.appendRow(['ID', 'FECHA', 'UNIDAD', 'CHOFER_PIN', 'LITROS', 'COSTO', 'KM', 'FOTO_TICKET']);
+  }
+  
+  const id = 'DSL-' + new Date().getTime();
+  const fecha = new Date();
+  
+  s.appendRow([
+    id,
+    fecha,
+    datos.unidad,
+    datos.pin,
+    datos.litros,
+    datos.costo,
+    datos.km,
+    fotoBase64 || ''
+  ]);
+  
+  // Calcular rendimiento si hay datos previos
+  const sV = ss.getSheetByName('VIAJES');
+  if(sV) {
+    const vData = sV.getDataRange().getValues();
+    let kmAnterior = 0;
+    
+    for(let i = vData.length - 1; i > 0; i--) {
+      if(vData[i][2] === datos.unidad && vData[i][11] === 'CERRADO' && vData[i][7]) {
+        kmAnterior = vData[i][7];
         break;
       }
     }
-  });
-  
-  limpiarCache();
-  return { exito: true, actualizados };
-}
-
-// ==================================================
-// UTILIDADES ADICIONALES
-// ==================================================
-
-function apiGetEstadisticasRapidas() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const unidades = ss.getSheetByName('UNIDADES').getDataRange().getValues().slice(1);
-  const ots = ss.getSheetByName('ORDENES_TRABAJO').getDataRange().getValues().slice(1);
-  const alertas = ss.getSheetByName('ALERTAS');
-  
-  const alertasNoLeidas = alertas 
-    ? alertas.getDataRange().getValues().slice(1).filter(a => a[5] === false).length 
-    : 0;
-  
-  return {
-    flotaTotal: unidades.filter(u => u[4] !== 'BAJA').length,
-    enRuta: unidades.filter(u => u[4] === 'EN_RUTA').length,
-    enTaller: unidades.filter(u => u[4] === 'MANTENIMIENTO').length,
-    otsAbiertas: ots.filter(o => o[6] !== 'CERRADA').length,
-    alertasNoLeidas: alertasNoLeidas
-  };
-}
-
-function apiGetConfiguracion() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName('CONFIG');
-  
-  if (!sheet) {
-    sheet = ss.insertSheet('CONFIG');
-    sheet.appendRow(['CLAVE', 'VALOR']);
-    sheet.getRange(1, 1, 1, 2).setBackground('#0f172a').setFontColor('white').setFontWeight('bold');
-    sheet.setFrozenRows(1);
-    // Valores por defecto
-    sheet.appendRow(['EMPRESA_NOMBRE', 'FleetControl Pro']);
-    sheet.appendRow(['KM_MANTENIMIENTO', '5000']);
-    sheet.appendRow(['ALERTA_COMBUSTIBLE_MIN', '20']);
-    sheet.appendRow(['SESION_DURACION_HORAS', '8']);
-  }
-  
-  const data = sheet.getDataRange().getValues().slice(1);
-  const config = {};
-  data.forEach(row => {
-    config[row[0]] = row[1];
-  });
-  
-  return { exito: true, config };
-}
-
-function apiSetConfiguracion(clave, valor) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('CONFIG');
-  if (!sheet) return { exito: false, error: 'Hoja CONFIG no existe' };
-  
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === clave) {
-      sheet.getRange(i + 1, 2).setValue(valor);
-      return { exito: true };
+    
+    if(kmAnterior > 0) {
+      const kmRecorridos = datos.km - kmAnterior;
+      const rendimiento = (kmRecorridos / datos.litros).toFixed(2);
+      registrarTrazabilidad(datos.unidad, id, 'DIESEL', `Carga: ${datos.litros}L - Rendimiento: ${rendimiento} km/L`, datos.pin);
+    } else {
+      registrarTrazabilidad(datos.unidad, id, 'DIESEL', `Carga: ${datos.litros}L - $${datos.costo}`, datos.pin);
     }
   }
   
-  // Si no existe, crear
-  sheet.appendRow([clave, valor]);
-  return { exito: true, mensaje: 'Configuración creada' };
+  return { exito: true, mensaje: 'Carga de diesel registrada' };
 }
+
+/**
+ * FUNCIÓN DE TRAZABILIDAD
+ * Registra todos los eventos del sistema
+ */
+function registrarTrazabilidad(unidad, folioRef, tipoEvento, descripcion, usuario) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let s = ss.getSheetByName('TRAZABILIDAD');
+  
+  if(!s) {
+    s = ss.insertSheet('TRAZABILIDAD');
+    s.appendRow(['ID', 'FECHA', 'UNIDAD', 'FOLIO_REF', 'TIPO_EVENTO', 'DESCRIPCION', 'USUARIO']);
+  }
+  
+  const id = 'TRZ-' + new Date().getTime();
+  const fecha = new Date();
+  
+  s.appendRow([
+    id,
+    fecha,
+    unidad,
+    folioRef,
+    tipoEvento,
+    descripcion,
+    usuario
+  ]);
+}
+
+// ============================================================
+// GENERACIÓN DE PDFs PREMIUM
+// ============================================================
+
+function getEstiloPremium() {
+  return `<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Arial', sans-serif; color: #333; background: #f5f5f5; padding: 20px; }
+    .header { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: white; padding: 30px; border-radius: 8px; margin-bottom: 20px; }
+    .header .top { display: flex; justify-content: space-between; align-items: center; }
+    .logo { height: 60px; }
+    .title { font-size: 28px; font-weight: bold; margin-bottom: 5px; }
+    .subtitle { font-size: 14px; opacity: 0.9; }
+    table { width: 100%; border-collapse: collapse; margin: 20px 0; background: white; border-radius: 8px; overflow: hidden; }
+    thead { background: #1a1a2e; color: white; }
+    th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+    th { font-weight: bold; text-transform: uppercase; font-size: 12px; }
+    tbody tr:hover { background: #f9f9f9; }
+    tbody tr:last-child td { border-bottom: none; }
+    .kpi-container { display: flex; gap: 20px; margin: 20px 0; }
+    .kpi-box { flex: 1; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .kpi-label { font-size: 12px; color: #666; text-transform: uppercase; margin-bottom: 8px; }
+    .kpi-val { font-size: 36px; font-weight: bold; color: #1a1a2e; }
+    .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; margin-top: 40px; }
+    .badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+    .badge-success { background: #d4edda; color: #155724; }
+    .badge-warning { background: #fff3cd; color: #856404; }
+    .badge-danger { background: #f8d7da; color: #721c24; }
+  </style>`;
+}
+
+function crearPDF(htmlContent, nombreArchivo) {
+  try {
+    const blob = Utilities.newBlob(htmlContent, 'text/html', 'temp.html');
+    const pdf = blob.getAs('application/pdf').setName(nombreArchivo);
+    
+    const rootFolder = DriveApp.getRootFolder();
+    let carpetaPrincipal = buscarOCrearCarpeta('AVA_FleetControl', rootFolder);
+    let carpetaReportes = buscarOCrearCarpeta('Reportes_BI', carpetaPrincipal);
+    
+    const file = carpetaReportes.createFile(pdf);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    
+    return file.getUrl();
+  } catch(e) {
+    Logger.log('Error creando PDF: ' + e.message);
+    return '';
+  }
+}
+
+function generarPDFOrdenTrabajo(folio) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const s = ss.getSheetByName('ORDENES_TRABAJO');
+  if(!s) return { exito: false, error: 'Hoja no encontrada' };
+  
+  const data = s.getDataRange().getValues();
+  let ot = null;
+  
+  for(let i = 1; i < data.length; i++) {
+    if(data[i][0] === folio) {
+      ot = {
+        folio: data[i][0],
+        fecha: data[i][1] ? Utilities.formatDate(new Date(data[i][1]), Session.getScriptTimeZone(), 'dd/MM/yyyy') : '',
+        unidad: data[i][2],
+        actividad: data[i][3],
+        tipo: data[i][4],
+        estado: data[i][5],
+        tecnico: data[i][6],
+        diagnostico: data[i][10] || '',
+        costo: data[i][11] || 0,
+        horas: data[i][12] || 0
+      };
+      break;
+    }
+  }
+  
+  if(!ot) return { exito: false, error: 'OT no encontrada' };
+  
+  const logo = getAvaLogo();
+  const estadoBadge = ot.estado === 'CERRADA' ? 'badge-success' : (ot.estado === 'EN_PROCESO' ? 'badge-warning' : 'badge-danger');
+  
+  const html = `<!DOCTYPE html><html><head>${getEstiloPremium()}</head><body>
+    <div class="header">
+      <div class="top">
+        <img src="${logo}" class="logo">
+        <div style="text-align:right">
+          <div class="title">ORDEN DE TRABAJO</div>
+          <div class="subtitle">${ot.folio}</div>
+        </div>
+      </div>
+    </div>
+    <div style="background:white; padding:30px; border-radius:8px;">
+      <table>
+        <tr><th style="width:200px">Unidad:</th><td><strong>${ot.unidad}</strong></td></tr>
+        <tr><th>Fecha:</th><td>${ot.fecha}</td></tr>
+        <tr><th>Tipo:</th><td>${ot.tipo}</td></tr>
+        <tr><th>Técnico:</th><td>${ot.tecnico}</td></tr>
+        <tr><th>Actividad:</th><td>${ot.actividad}</td></tr>
+        <tr><th>Diagnóstico:</th><td>${ot.diagnostico}</td></tr>
+        <tr><th>Horas Trabajadas:</th><td>${ot.horas} hrs</td></tr>
+        <tr><th>Costo Total:</th><td><strong>$${Number(ot.costo).toLocaleString()}</strong></td></tr>
+        <tr><th>Estado:</th><td><span class="badge ${estadoBadge}">${ot.estado}</span></td></tr>
+      </table>
+    </div>
+    <div class="footer">
+      AVA FleetControl - Generado: ${Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')}
+    </div>
+  </body></html>`;
+  
+  const url = crearPDF(html, `OT_${folio}.pdf`);
+  
+  if(url) {
+    for(let i = 1; i < data.length; i++) {
+      if(data[i][0] === folio) {
+        s.getRange(i + 1, 14).setValue(url);
+        break;
+      }
+    }
+  }
+  
+  return { exito: true, url: url };
+}
+
