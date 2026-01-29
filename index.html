@@ -1363,6 +1363,568 @@
                         }
                     }
 
+                    // ============== FUNCIONES DE DASHBOARD ADMIN ==============
+                    function abrirNuevaUnidad() {
+                        Swal.fire({
+                            title: 'Nueva Unidad',
+                            html: `
+                                <div class="text-start">
+                                    <div class="mb-3">
+                                        <label class="form-label">ID Unidad</label>
+                                        <input id="nueva-id" type="text" class="form-control" placeholder="Ej: UNIT-001">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Modelo</label>
+                                        <input id="nueva-modelo" type="text" class="form-control" placeholder="Ej: Toyota Hilux">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Placas</label>
+                                        <input id="nueva-placas" type="text" class="form-control" placeholder="Ej: ABC-123">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Año</label>
+                                        <input id="nueva-anio" type="number" class="form-control" placeholder="2024">
+                                    </div>
+                                </div>
+                            `,
+                            showCancelButton: true,
+                            confirmButtonText: 'Crear Unidad',
+                            cancelButtonText: 'Cancelar',
+                            preConfirm: () => {
+                                const id = document.getElementById('nueva-id').value;
+                                const modelo = document.getElementById('nueva-modelo').value;
+                                const placas = document.getElementById('nueva-placas').value;
+                                const anio = document.getElementById('nueva-anio').value;
+
+                                if (!id || !modelo || !placas) {
+                                    Swal.showValidationMessage('Completa todos los campos obligatorios');
+                                    return false;
+                                }
+
+                                return { id, modelo, placas, anio };
+                            }
+                        }).then(result => {
+                            if (result.isConfirmed) {
+                                loader(true, 'Creando unidad...');
+                                google.script.run
+                                    .withSuccessHandler(res => {
+                                        loader(false);
+                                        if (res.exito) {
+                                            Swal.fire('Éxito', 'Unidad creada correctamente', 'success');
+                                            loadFleet();
+                                        } else {
+                                            Swal.fire('Error', res.error || 'No se pudo crear la unidad', 'error');
+                                        }
+                                    })
+                                    .withFailureHandler(err => {
+                                        loader(false);
+                                        Swal.fire('Error', 'Error de conexión: ' + err.message, 'error');
+                                    })
+                                    .crearNuevaUnidad(result.value);
+                            }
+                        });
+                    }
+
+                    function verUltimasInspecciones() {
+                        loader(true, 'Cargando inspecciones...');
+                        google.script.run
+                            .withSuccessHandler(inspecciones => {
+                                loader(false);
+                                if (!inspecciones || inspecciones.length === 0) {
+                                    Swal.fire('Info', 'No hay inspecciones registradas', 'info');
+                                    return;
+                                }
+
+                                const html = `
+                                    <div class="list-group">
+                                        ${inspecciones.map(i => `
+                                            <div class="list-group-item">
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <div>
+                                                        <strong>${i.unidad || 'N/A'}</strong>
+                                                        <small class="text-muted d-block">${i.fecha || ''} - ${i.chofer || ''}</small>
+                                                    </div>
+                                                    <span class="badge ${i.resultado === 'APROBADO' ? 'bg-success' : 'bg-danger'}">
+                                                        ${i.resultado || 'N/A'}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                `;
+
+                                Swal.fire({
+                                    title: 'Últimas Inspecciones',
+                                    html: html,
+                                    width: '600px',
+                                    showCloseButton: true,
+                                    confirmButtonText: 'Cerrar'
+                                });
+                            })
+                            .withFailureHandler(err => {
+                                loader(false);
+                                Swal.fire('Error', 'Error al cargar inspecciones: ' + err.message, 'error');
+                            })
+                            .obtenerHistorialInspecciones();
+                    }
+
+                    // ============== FUNCIONES DE DASHBOARD TALLER ==============
+                    function cargarAgendaTaller() {
+                        loader(true, 'Cargando agenda de taller...');
+                        google.script.run
+                            .withSuccessHandler(ots => {
+                                loader(false);
+                                renderizarAgendaTaller(ots);
+                            })
+                            .withFailureHandler(err => {
+                                loader(false);
+                                Swal.fire('Error', 'Error al cargar agenda: ' + err.message, 'error');
+                            })
+                            .obtenerOTsPendientes();
+                    }
+
+                    function renderizarAgendaTaller(ots) {
+                        const container = document.getElementById('taller-agenda-list');
+                        if (!container) {
+                            console.error('Contenedor taller-agenda-list no encontrado');
+                            return;
+                        }
+
+                        if (!ots || ots.length === 0) {
+                            container.innerHTML = `
+                                <div class="alert alert-info">
+                                    <i class="fas fa-info-circle me-2"></i>
+                                    No hay órdenes de trabajo pendientes
+                                </div>
+                            `;
+                            return;
+                        }
+
+                        const html = ots.map(ot => `
+                            <div class="card mb-3">
+                                <div class="card-body">
+                                    <div class="d-flex justify-content-between align-items-start">
+                                        <div>
+                                            <h6 class="card-title mb-1">
+                                                <i class="fas fa-wrench text-primary me-2"></i>
+                                                OT-${ot.folio}
+                                            </h6>
+                                            <p class="mb-1"><strong>Unidad:</strong> ${ot.unidad}</p>
+                                            <p class="mb-1"><strong>Tipo:</strong> ${ot.tipo}</p>
+                                            <p class="mb-1"><strong>Actividad:</strong> ${ot.actividad}</p>
+                                            <p class="mb-1 text-muted"><small>${ot.fecha}</small></p>
+                                        </div>
+                                        <div>
+                                            <span class="badge ${ot.estado === 'PENDIENTE' ? 'bg-warning' : 'bg-info'} mb-2">
+                                                ${ot.estado}
+                                            </span>
+                                            <div class="btn-group-vertical">
+                                                <button class="btn btn-sm btn-primary" onclick="verDetalleOT('${ot.folio}')">
+                                                    <i class="fas fa-eye"></i> Ver
+                                                </button>
+                                                <button class="btn btn-sm btn-success" onclick="cerrarOTTaller('${ot.folio}')">
+                                                    <i class="fas fa-check"></i> Cerrar
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('');
+
+                        container.innerHTML = html;
+                    }
+
+                    function verDetalleOT(folio) {
+                        loader(true, 'Cargando OT...');
+                        google.script.run
+                            .withSuccessHandler(ot => {
+                                loader(false);
+                                if (!ot) {
+                                    Swal.fire('Error', 'OT no encontrada', 'error');
+                                    return;
+                                }
+
+                                Swal.fire({
+                                    title: `OT-${ot.folio}`,
+                                    html: `
+                                        <div class="text-start">
+                                            <p><strong>Unidad:</strong> ${ot.unidad}</p>
+                                            <p><strong>Tipo:</strong> ${ot.tipo}</p>
+                                            <p><strong>Estado:</strong> <span class="badge bg-${ot.estado === 'PENDIENTE' ? 'warning' : 'info'}">${ot.estado}</span></p>
+                                            <p><strong>Fecha:</strong> ${ot.fecha}</p>
+                                            <p><strong>Técnico:</strong> ${ot.tecnico || 'Sin asignar'}</p>
+                                            <hr>
+                                            <p><strong>Actividad:</strong></p>
+                                            <p>${ot.actividad}</p>
+                                            ${ot.diagnostico ? `
+                                                <hr>
+                                                <p><strong>Diagnóstico:</strong></p>
+                                                <p>${ot.diagnostico}</p>
+                                            ` : ''}
+                                            ${ot.insumos && ot.insumos.length > 0 ? `
+                                                <hr>
+                                                <p><strong>Insumos:</strong></p>
+                                                <ul>
+                                                    ${ot.insumos.map(i => `<li>${i}</li>`).join('')}
+                                                </ul>
+                                            ` : ''}
+                                            ${ot.refacciones && ot.refacciones.length > 0 ? `
+                                                <hr>
+                                                <p><strong>Refacciones:</strong></p>
+                                                <ul>
+                                                    ${ot.refacciones.map(r => `<li>${r}</li>`).join('')}
+                                                </ul>
+                                            ` : ''}
+                                        </div>
+                                    `,
+                                    width: '600px',
+                                    showCloseButton: true,
+                                    confirmButtonText: 'Cerrar'
+                                });
+                            })
+                            .withFailureHandler(err => {
+                                loader(false);
+                                Swal.fire('Error', 'Error al cargar OT: ' + err.message, 'error');
+                            })
+                            .obtenerDetalleOT(folio);
+                    }
+
+                    function cerrarOTTaller(folio) {
+                        Swal.fire({
+                            title: 'Cerrar OT-' + folio,
+                            html: `
+                                <div class="text-start">
+                                    <div class="mb-3">
+                                        <label class="form-label">Diagnóstico Final</label>
+                                        <textarea id="ot-diagnostico-final" class="form-control" rows="3" placeholder="Describe el trabajo realizado..."></textarea>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Observaciones</label>
+                                        <textarea id="ot-observaciones" class="form-control" rows="2" placeholder="Observaciones adicionales..."></textarea>
+                                    </div>
+                                </div>
+                            `,
+                            showCancelButton: true,
+                            confirmButtonText: 'Cerrar OT',
+                            cancelButtonText: 'Cancelar',
+                            preConfirm: () => {
+                                const diagnostico = document.getElementById('ot-diagnostico-final').value;
+                                const observaciones = document.getElementById('ot-observaciones').value;
+
+                                if (!diagnostico) {
+                                    Swal.showValidationMessage('El diagnóstico final es obligatorio');
+                                    return false;
+                                }
+
+                                return { diagnostico, observaciones };
+                            }
+                        }).then(result => {
+                            if (result.isConfirmed) {
+                                loader(true, 'Cerrando OT...');
+                                google.script.run
+                                    .withSuccessHandler(res => {
+                                        loader(false);
+                                        if (res.exito) {
+                                            Swal.fire('Éxito', 'OT cerrada correctamente', 'success');
+                                            cargarAgendaTaller();
+                                        } else {
+                                            Swal.fire('Error', res.error || 'No se pudo cerrar la OT', 'error');
+                                        }
+                                    })
+                                    .withFailureHandler(err => {
+                                        loader(false);
+                                        Swal.fire('Error', 'Error de conexión: ' + err.message, 'error');
+                                    })
+                                    .cerrarOrdenTrabajo(folio, result.value.diagnostico, result.value.observaciones);
+                            }
+                        });
+                    }
+
+                    // ============== FUNCIONES DE DASHBOARD CHOFER ==============
+                    let unidadesDisponibles = [];
+
+                    function loadChoferSelects() {
+                        loader(true, 'Cargando unidades...');
+                        google.script.run
+                            .withSuccessHandler(unidades => {
+                                loader(false);
+                                unidadesDisponibles = unidades;
+                            })
+                            .withFailureHandler(err => {
+                                loader(false);
+                                Swal.fire('Error', 'Error al cargar unidades: ' + err.message, 'error');
+                            })
+                            .obtenerUnidadesDisponibles();
+                    }
+
+                    function sendInsp() {
+                        if (!unidadesDisponibles || unidadesDisponibles.length === 0) {
+                            Swal.fire('Error', 'No hay unidades disponibles', 'warning');
+                            return;
+                        }
+
+                        const opcionesUnidades = unidadesDisponibles.map(u =>
+                            `<option value="${u.id}">${u.id} - ${u.modelo}</option>`
+                        ).join('');
+
+                        Swal.fire({
+                            title: 'Inspección Pre-Arranque',
+                            html: `
+                                <div class="text-start">
+                                    <div class="mb-3">
+                                        <label class="form-label">Unidad</label>
+                                        <select id="insp-unidad" class="form-select">
+                                            <option value="">Selecciona unidad...</option>
+                                            ${opcionesUnidades}
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Kilometraje</label>
+                                        <input id="insp-km" type="number" class="form-control" placeholder="Ej: 15000">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Observaciones</label>
+                                        <textarea id="insp-obs" class="form-control" rows="3"></textarea>
+                                    </div>
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="insp-ok">
+                                            <label class="form-check-label" for="insp-ok">
+                                                Unidad en buen estado
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            `,
+                            showCancelButton: true,
+                            confirmButtonText: 'Enviar Inspección',
+                            cancelButtonText: 'Cancelar',
+                            preConfirm: () => {
+                                const unidad = document.getElementById('insp-unidad').value;
+                                const km = document.getElementById('insp-km').value;
+                                const obs = document.getElementById('insp-obs').value;
+                                const ok = document.getElementById('insp-ok').checked;
+
+                                if (!unidad || !km) {
+                                    Swal.showValidationMessage('Completa todos los campos obligatorios');
+                                    return false;
+                                }
+
+                                return { unidad, km, obs, resultado: ok ? 'APROBADO' : 'RECHAZADO' };
+                            }
+                        }).then(result => {
+                            if (result.isConfirmed) {
+                                loader(true, 'Enviando inspección...');
+                                google.script.run
+                                    .withSuccessHandler(res => {
+                                        loader(false);
+                                        if (res.exito) {
+                                            Swal.fire('Éxito', 'Inspección registrada', 'success');
+                                        } else {
+                                            Swal.fire('Error', res.error, 'error');
+                                        }
+                                    })
+                                    .withFailureHandler(err => {
+                                        loader(false);
+                                        Swal.fire('Error', err.message, 'error');
+                                    })
+                                    .registrarInspeccion(result.value);
+                            }
+                        });
+                    }
+
+                    function sendSal() {
+                        if (!unidadesDisponibles || unidadesDisponibles.length === 0) {
+                            Swal.fire('Error', 'No hay unidades disponibles', 'warning');
+                            return;
+                        }
+
+                        const opcionesUnidades = unidadesDisponibles.map(u =>
+                            `<option value="${u.id}">${u.id} - ${u.modelo}</option>`
+                        ).join('');
+
+                        Swal.fire({
+                            title: 'Registrar Salida',
+                            html: `
+                                <div class="text-start">
+                                    <div class="mb-3">
+                                        <label class="form-label">Unidad</label>
+                                        <select id="sal-unidad" class="form-select">
+                                            <option value="">Selecciona unidad...</option>
+                                            ${opcionesUnidades}
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Destino</label>
+                                        <input id="sal-destino" type="text" class="form-control" placeholder="Ej: Obra Central">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Kilometraje Salida</label>
+                                        <input id="sal-km" type="number" class="form-control" placeholder="Ej: 15000">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Observaciones</label>
+                                        <textarea id="sal-obs" class="form-control" rows="2"></textarea>
+                                    </div>
+                                </div>
+                            `,
+                            showCancelButton: true,
+                            confirmButtonText: 'Registrar Salida',
+                            cancelButtonText: 'Cancelar',
+                            preConfirm: () => {
+                                const unidad = document.getElementById('sal-unidad').value;
+                                const destino = document.getElementById('sal-destino').value;
+                                const km = document.getElementById('sal-km').value;
+                                const obs = document.getElementById('sal-obs').value;
+
+                                if (!unidad || !destino || !km) {
+                                    Swal.showValidationMessage('Completa todos los campos obligatorios');
+                                    return false;
+                                }
+
+                                return { unidad, destino, km, obs };
+                            }
+                        }).then(result => {
+                            if (result.isConfirmed) {
+                                loader(true, 'Registrando salida...');
+                                google.script.run
+                                    .withSuccessHandler(res => {
+                                        loader(false);
+                                        if (res.exito) {
+                                            Swal.fire('Éxito', 'Salida registrada', 'success');
+                                        } else {
+                                            Swal.fire('Error', res.error, 'error');
+                                        }
+                                    })
+                                    .withFailureHandler(err => {
+                                        loader(false);
+                                        Swal.fire('Error', err.message, 'error');
+                                    })
+                                    .registrarSalida(result.value);
+                            }
+                        });
+                    }
+
+                    function sendEnt() {
+                        Swal.fire({
+                            title: 'Registrar Entrada',
+                            html: `
+                                <div class="text-start">
+                                    <div class="mb-3">
+                                        <label class="form-label">Kilometraje Entrada</label>
+                                        <input id="ent-km" type="number" class="form-control" placeholder="Ej: 15250">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Observaciones</label>
+                                        <textarea id="ent-obs" class="form-control" rows="3" placeholder="Novedades durante el recorrido..."></textarea>
+                                    </div>
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="ent-novedad">
+                                            <label class="form-check-label" for="ent-novedad">
+                                                Reportar novedad o falla
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            `,
+                            showCancelButton: true,
+                            confirmButtonText: 'Registrar Entrada',
+                            cancelButtonText: 'Cancelar',
+                            preConfirm: () => {
+                                const km = document.getElementById('ent-km').value;
+                                const obs = document.getElementById('ent-obs').value;
+                                const novedad = document.getElementById('ent-novedad').checked;
+
+                                if (!km) {
+                                    Swal.showValidationMessage('El kilometraje es obligatorio');
+                                    return false;
+                                }
+
+                                return { km, obs, novedad };
+                            }
+                        }).then(result => {
+                            if (result.isConfirmed) {
+                                loader(true, 'Registrando entrada...');
+                                google.script.run
+                                    .withSuccessHandler(res => {
+                                        loader(false);
+                                        if (res.exito) {
+                                            Swal.fire('Éxito', 'Entrada registrada', 'success');
+                                        } else {
+                                            Swal.fire('Error', res.error, 'error');
+                                        }
+                                    })
+                                    .withFailureHandler(err => {
+                                        loader(false);
+                                        Swal.fire('Error', err.message, 'error');
+                                    })
+                                    .registrarEntrada(result.value);
+                            }
+                        });
+                    }
+
+                    function sendDsl() {
+                        Swal.fire({
+                            title: 'Carga de Diesel',
+                            html: `
+                                <div class="text-start">
+                                    <div class="mb-3">
+                                        <label class="form-label">Litros</label>
+                                        <input id="dsl-litros" type="number" step="0.01" class="form-control" placeholder="Ej: 50.5">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Costo Total</label>
+                                        <input id="dsl-costo" type="number" step="0.01" class="form-control" placeholder="Ej: 1250.00">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Estación</label>
+                                        <input id="dsl-estacion" type="text" class="form-control" placeholder="Ej: Pemex Centro">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Kilometraje Actual</label>
+                                        <input id="dsl-km" type="number" class="form-control" placeholder="Ej: 15100">
+                                    </div>
+                                </div>
+                            `,
+                            showCancelButton: true,
+                            confirmButtonText: 'Registrar Carga',
+                            cancelButtonText: 'Cancelar',
+                            preConfirm: () => {
+                                const litros = document.getElementById('dsl-litros').value;
+                                const costo = document.getElementById('dsl-costo').value;
+                                const estacion = document.getElementById('dsl-estacion').value;
+                                const km = document.getElementById('dsl-km').value;
+
+                                if (!litros || !costo || !estacion || !km) {
+                                    Swal.showValidationMessage('Completa todos los campos');
+                                    return false;
+                                }
+
+                                return { litros, costo, estacion, km };
+                            }
+                        }).then(result => {
+                            if (result.isConfirmed) {
+                                loader(true, 'Registrando carga de diesel...');
+                                google.script.run
+                                    .withSuccessHandler(res => {
+                                        loader(false);
+                                        if (res.exito) {
+                                            Swal.fire('Éxito', 'Carga de diesel registrada', 'success');
+                                        } else {
+                                            Swal.fire('Error', res.error, 'error');
+                                        }
+                                    })
+                                    .withFailureHandler(err => {
+                                        loader(false);
+                                        Swal.fire('Error', err.message, 'error');
+                                    })
+                                    .registrarCargaDiesel(result.value);
+                            }
+                        });
+                    }
+
                     // ============== FUNCIONES UTILITARIAS ==============
                     function openModal(modalId, show = true) {
                         const modalEl = document.getElementById(modalId);
@@ -2741,8 +3303,6 @@
                     // DASHBOARD CHOFER - 4 MODALES FUNCIONALES
                     // ============================================================
 
-                    let unidadesDisponibles = [];
-
                     function cargarDashboardChofer() {
                         document.getElementById('chofer-nombre').textContent = USER.nombre;
                         loadChoferSelects();
@@ -3106,7 +3666,7 @@
                             <textarea id="swal-diagnostico" class="form-control" rows="3"></textarea>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">Costo Total ($)</label>
+                          A  <label class="form-label">Costo Total ($)</label>
                             <input id="swal-costo" type="number" class="form-control" step="0.01">
                         </div>
                         <div class="mb-3">
